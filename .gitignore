@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+shieldedge-env/
+*.egg-info/
+dist/
+build/
+
+# ExecuTorch and Model Binaries (>100MB)
+*.pte
+*.pth
+*.bin
+*.onnx
+
+# Data and Raw Datasets (Do not commit large CSVs/ZIPs)
+data/*.zip
+data/*.csv
+data/*.tsv
+data/raw/
+*.pcap
+*.pcapng
+
+# SQLite Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs and OS
+*.log
+.DS_Store
+.vscode/
+.idea/

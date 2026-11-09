@@ -1,0 +1,12 @@
+# Core ML & Data Processing
+scikit-learn>=1.4.0
+pandas>=2.2.0
+numpy>=1.26.0
+joblib>=1.3.0
+tqdm>=4.66.0
+
+# System Benchmarking & Hardware Profiling
+psutil>=5.9.0
+
+# Optional Web / UI
+flask>=3.0.0
