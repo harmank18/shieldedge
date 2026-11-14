@@ -35,3 +35,8 @@ data/raw/
 .DS_Store
 .vscode/
 .idea/
+
+# Large model directories and compiled binaries
+models/Llama-3.2-1B-Instruct/
+executorch/llama_main
+executorch/libllama_runner.so

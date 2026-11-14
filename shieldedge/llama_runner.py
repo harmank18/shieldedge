@@ -6,17 +6,25 @@ deterministic rule-based templates if the LLM binary is not loaded.
 
 import os
 import subprocess
+import tempfile
+import json
+import re
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DEFAULT_PTE_PATH = os.path.join(BASE_DIR, "executorch", "llama3_2_1b.pte")
+DEFAULT_RUNNER_BIN = os.path.join(BASE_DIR, "executorch", "llama_main")
+DEFAULT_TOKENIZER_PATH = os.path.join(BASE_DIR, "models", "Llama-3.2-1B-Instruct", "original", "tokenizer.model")
 
 
 class LlamaAdvisoryRunner:
-    def __init__(self, pte_model_path: str = None, executorch_runner_bin: str = None):
-        self.pte_model_path = pte_model_path
-        self.executorch_runner_bin = executorch_runner_bin
+    def __init__(self, pte_model_path: str = None, executorch_runner_bin: str = None, tokenizer_path: str = None):
+        self.pte_model_path = pte_model_path or DEFAULT_PTE_PATH
+        self.executorch_runner_bin = executorch_runner_bin or DEFAULT_RUNNER_BIN
+        self.tokenizer_path = tokenizer_path or DEFAULT_TOKENIZER_PATH
         self.has_executorch = (
-            pte_model_path is not None 
-            and os.path.exists(pte_model_path)
-            and executorch_runner_bin is not None 
-            and os.path.exists(executorch_runner_bin)
+            os.path.exists(self.pte_model_path)
+            and os.path.exists(self.executorch_runner_bin)
+            and os.path.exists(self.tokenizer_path)
         )
 
     def generate_advisory(self, evidence: dict, prompt: str) -> dict:
@@ -26,18 +34,62 @@ class LlamaAdvisoryRunner:
         """
         if self.has_executorch:
             try:
+                # Write prompt to a temp file to avoid shell escaping issues
+                with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+                    tf.write(prompt)
+                    prompt_file_path = tf.name
+
+                env = os.environ.copy()
+                et_dir = os.path.dirname(self.executorch_runner_bin)
+                env["LD_LIBRARY_PATH"] = f"{et_dir}:{env.get('LD_LIBRARY_PATH', '')}"
+
                 cmd = [
                     self.executorch_runner_bin,
                     "--model_path", self.pte_model_path,
-                    "--prompt", prompt,
-                    "--max_new_tokens", "150"
+                    "--tokenizer_path", self.tokenizer_path,
+                    "--prompt_file", prompt_file_path,
+                    "--max_new_tokens", "50",
+                    "--temperature", "0.2"
                 ]
-                res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-                if res.returncode == 0 and res.stdout.strip():
-                    return {
-                        "source": "ExecuTorch (Llama 3.2 1B-Instruct)",
-                        "advisory": res.stdout.strip()
-                    }
+
+                res = subprocess.run(cmd, capture_output=True, text=True, timeout=180, env=env)
+                
+                try:
+                    os.remove(prompt_file_path)
+                except OSError:
+                    pass
+
+                if res.returncode == 0 and res.stdout:
+                    output = res.stdout
+                    # Parse out PyTorchObserver telemetry if present
+                    observer_metrics = None
+                    obs_match = re.search(r"PyTorchObserver\s+(\{.*?\})", output)
+                    if obs_match:
+                        try:
+                            observer_metrics = json.loads(obs_match.group(1))
+                        except Exception:
+                            pass
+
+                    # Extract generated content after assistant header if using chat template
+                    if "<|start_header_id|>assistant<|end_header_id|>" in output:
+                        advisory_part = output.split("<|start_header_id|>assistant<|end_header_id|>")[-1]
+                    else:
+                        advisory_part = output
+
+                    # Clean PyTorchObserver and warning lines from advisory
+                    clean_lines = []
+                    for line in advisory_part.splitlines():
+                        if line.startswith("PyTorchObserver") or line.startswith("I tokenizers") or line.startswith("E tokenizers"):
+                            continue
+                        clean_lines.append(line)
+                    advisory_text = "\n".join(clean_lines).strip()
+
+                    if advisory_text:
+                        return {
+                            "source": "ExecuTorch (Llama 3.2 1B-Instruct)",
+                            "advisory": advisory_text,
+                            "metrics": observer_metrics
+                        }
             except Exception as e:
                 print(f"[Warning] ExecuTorch runner failed: {e}. Falling back to template explainer.")
 

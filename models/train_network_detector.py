@@ -1,7 +1,8 @@
 """
 Training script for Network Flow Anomaly Detector.
-Trains an Isolation Forest model on baseline non-malicious traffic flows
-and exports the model to models/network_isolation_forest.joblib.
+Trains an Isolation Forest model on real baseline traffic flows from CICIDS-2017
+and evaluates detection performance against real intrusion/attack flows (DDoS, PortScan, Botnet).
+Exports the model to models/network_isolation_forest.joblib.
 """
 
 import os
@@ -9,58 +10,57 @@ import joblib
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import IsolationForest
+from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score, f1_score
 
 from shieldedge.network_detector import FLOW_FEATURE_NAMES
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TRAIN_DATA_PATH = os.path.join(BASE_DIR, "data", "raw", "network_train.csv")
+TEST_DATA_PATH = os.path.join(BASE_DIR, "data", "raw", "network_test.csv")
 MODEL_OUT = os.path.join(BASE_DIR, "models", "network_isolation_forest.joblib")
 
 
-def generate_baseline_flows(n_samples=5000):
-    """Generates synthetic baseline traffic flows modeled on standard CICIDS normal profiles."""
-    np.random.seed(42)
-    duration = np.random.exponential(scale=2.5, size=n_samples)
-    fwd_pkts = np.random.poisson(lam=10, size=n_samples) + 1
-    bwd_pkts = np.random.poisson(lam=12, size=n_samples) + 1
-    fwd_bytes = fwd_pkts * np.random.randint(60, 1400, size=n_samples)
-    bwd_bytes = bwd_pkts * np.random.randint(60, 1400, size=n_samples)
-    pkt_rate = (fwd_pkts + bwd_pkts) / np.maximum(duration, 0.01)
-    byte_rate = (fwd_bytes + bwd_bytes) / np.maximum(duration, 0.01)
-    # Common ports: 80, 443, 53, 8080
-    common_ports = [80, 443, 53, 8080, 22]
-    dst_port = np.random.choice(common_ports, size=n_samples, p=[0.2, 0.6, 0.15, 0.03, 0.02])
-    is_tcp = np.where(dst_port == 53, 0, 1)
-    syn_flags = np.random.choice([0, 1, 2], size=n_samples, p=[0.7, 0.25, 0.05])
-    rst_flags = np.random.choice([0, 1], size=n_samples, p=[0.98, 0.02])
-
-    df = pd.DataFrame({
-        "duration": duration,
-        "total_fwd_packets": fwd_pkts,
-        "total_bwd_packets": bwd_pkts,
-        "total_fwd_bytes": fwd_bytes,
-        "total_bwd_bytes": bwd_bytes,
-        "packet_rate": pkt_rate,
-        "byte_rate": byte_rate,
-        "dst_port": dst_port,
-        "is_tcp": is_tcp,
-        "syn_flag_count": syn_flags,
-        "rst_flag_count": rst_flags
-    })
-    return df
-
-
 def main():
-    print("Generating baseline traffic flow training data...")
-    df_normal = generate_baseline_flows(n_samples=5000)
-    X_train = df_normal[FLOW_FEATURE_NAMES].values
+    if not os.path.exists(TRAIN_DATA_PATH) or not os.path.exists(TEST_DATA_PATH):
+        raise FileNotFoundError("Network dataset not found. Run download_datasets.py first.")
 
-    print(f"Training Isolation Forest on {len(X_train)} baseline network flows...")
-    model = IsolationForest(n_estimators=100, contamination=0.01, random_state=42)
+    print(f"Loading real baseline flows from {TRAIN_DATA_PATH}...")
+    df_train = pd.read_csv(TRAIN_DATA_PATH)
+    X_train = df_train[FLOW_FEATURE_NAMES].values
+
+    print(f"Training Isolation Forest on {len(X_train)} real baseline flows...")
+    model = IsolationForest(n_estimators=100, contamination=0.03, random_state=42)
     model.fit(X_train)
+
+    print(f"Loading test set with real intrusion flows from {TEST_DATA_PATH}...")
+    df_test = pd.read_csv(TEST_DATA_PATH)
+    X_test = df_test[FLOW_FEATURE_NAMES].values
+    y_test = df_test["is_anomaly"].values
+
+    # Isolation Forest: -1 = anomaly, 1 = normal
+    raw_preds = model.predict(X_test)
+    y_pred = np.where(raw_preds == -1, 1, 0)
+    scores = -model.score_samples(X_test)
+
+    cm = confusion_matrix(y_test, y_pred)
+    tn, fp, fn, tp = cm.ravel()
+    fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
+    f1 = f1_score(y_test, y_pred)
+    auc = roc_auc_score(y_test, scores)
+
+    print("\n=== Network Anomaly Detector Performance on CICIDS-2017 Test Set ===")
+    print(f"Accuracy:        {(tp + tn) / len(y_test):.4f}")
+    print(f"Precision:       {tp / max(1, tp + fp):.4f}")
+    print(f"Recall:          {tp / max(1, tp + fn):.4f}")
+    print(f"F1-Score:        {f1:.4f}")
+    print(f"False Pos Rate:  {fpr:.4f}")
+    print(f"ROC-AUC:         {auc:.4f}")
+    print("\nConfusion Matrix:")
+    print(f"TN: {tn} | FP: {fp}\nFN: {fn} | TP: {tp}")
 
     os.makedirs(os.path.dirname(MODEL_OUT), exist_ok=True)
     joblib.dump(model, MODEL_OUT)
-    print(f"Network Anomaly Model exported successfully to: {MODEL_OUT}")
+    print(f"\nModel exported successfully to: {MODEL_OUT}")
 
 
 if __name__ == "__main__":

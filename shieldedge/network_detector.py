@@ -59,6 +59,8 @@ class NetworkDetector:
             # Normalize score to approximate 0.0 - 1.0 confidence
             anomaly_conf = float(1.0 / (1.0 + np.exp(-3 * (score - 0.5))))
             is_anomaly = (pred == -1) or (anomaly_conf > 0.6)
+            if is_anomaly and not signals:
+                signals.append(f"Statistical flow pattern anomaly detected by Isolation Forest (anomaly score: {score:.3f})")
         else:
             is_anomaly = len(signals) > 0
             anomaly_conf = 0.85 if is_anomaly else 0.15

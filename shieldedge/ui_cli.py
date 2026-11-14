@@ -67,12 +67,20 @@ def run_pipeline(detection_result: dict, decision_engine: DecisionEngine, adviso
 
     advisory_text = ""
     if eval_res["requires_advisory"]:
-        print("\n[AI Advisory & Explainer]")
+        print("\n[AI Advisory & Explainer (Running on-device Llama 3.2 via ExecuTorch...)]")
         prompt = construct_prompt(eval_res)
         adv_res = advisory_runner.generate_advisory(eval_res, prompt)
         print(f"Engine: {adv_res['source']}\n")
         advisory_text = adv_res["advisory"]
         print(advisory_text)
+        if adv_res.get("metrics"):
+            m = adv_res["metrics"]
+            ttft = m.get('first_token_ms', 0) - m.get('inference_start_ms', 0)
+            print(f"\n[ExecuTorch Model Telemetry]")
+            print(f"  • Time to First Token (TTFT): {ttft} ms")
+            print(f"  • Prefill Speed:              {m.get('prefill_token_per_sec', 0):.2f} tokens/sec")
+            print(f"  • Decode Speed:               {m.get('decode_token_per_sec', 0):.2f} tokens/sec")
+            print(f"  • Total Tokens:               {m.get('prompt_tokens', 0)} prompt + {m.get('generated_tokens', 0)} generated")
         print("="*60)
 
     # Log to SQLite
