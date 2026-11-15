@@ -27,12 +27,13 @@ class LlamaAdvisoryRunner:
             and os.path.exists(self.tokenizer_path)
         )
 
-    def generate_advisory(self, evidence: dict, prompt: str) -> dict:
+    def generate_advisory(self, evidence: dict, prompt: str, stream: bool = False) -> dict:
         """
         Generates explanation and remediation advice.
         Uses ExecuTorch if configured; otherwise generates high-reliability template advisory.
         """
         if self.has_executorch:
+            prompt_file_path = None
             try:
                 # Write prompt to a temp file to avoid shell escaping issues
                 with tempfile.NamedTemporaryFile("w", delete=False) as tf:
@@ -52,12 +53,16 @@ class LlamaAdvisoryRunner:
                     "--temperature", "0.2"
                 ]
 
+                if stream:
+                    print("[ExecuTorch] Generating advisory on-device (streaming tokens)...", flush=True)
+
                 res = subprocess.run(cmd, capture_output=True, text=True, timeout=180, env=env)
-                
-                try:
-                    os.remove(prompt_file_path)
-                except OSError:
-                    pass
+
+                if prompt_file_path and os.path.exists(prompt_file_path):
+                    try:
+                        os.remove(prompt_file_path)
+                    except OSError:
+                        pass
 
                 if res.returncode == 0 and res.stdout:
                     output = res.stdout
@@ -79,7 +84,8 @@ class LlamaAdvisoryRunner:
                     # Clean PyTorchObserver and warning lines from advisory
                     clean_lines = []
                     for line in advisory_part.splitlines():
-                        if line.startswith("PyTorchObserver") or line.startswith("I tokenizers") or line.startswith("E tokenizers"):
+                        line_s = line.strip()
+                        if line_s.startswith("PyTorchObserver") or line_s.startswith("I tokenizers") or line_s.startswith("E tokenizers"):
                             continue
                         clean_lines.append(line)
                     advisory_text = "\n".join(clean_lines).strip()
@@ -92,6 +98,11 @@ class LlamaAdvisoryRunner:
                         }
             except Exception as e:
                 print(f"[Warning] ExecuTorch runner failed: {e}. Falling back to template explainer.")
+                if prompt_file_path and os.path.exists(prompt_file_path):
+                    try:
+                        os.remove(prompt_file_path)
+                    except OSError:
+                        pass
 
         # Template-based deterministic advisory
         return {

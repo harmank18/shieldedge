@@ -58,9 +58,9 @@ All models are evaluated on held-out test splits from real benchmark datasets:
 
 | Modality | Architecture | Dataset | Test Samples | Accuracy | Precision | Recall | F1-Score | FPR | ROC-AUC | Latency / Sample |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **URL Phishing** | Random Forest (`n=100`, `depth=10`) | Mitake PhishBenign (Held-out) | 5,992 | 80.07% | 82.38% | 76.44% | 79.30% | 16.30% | 0.8958 | 0.010 ms |
-| **SMS Scam** | TF-IDF + Calibrated LinearSVC | UCI SMS Spam + Curated Indian Scams | 1,117 | 98.03% | 96.40% | 88.74% | 92.41% | 0.52% | 0.9857 | 0.023 ms |
-| **Network Anomaly** | Isolation Forest (`contam=0.03`) | CICIDS-2017 (Monday + Friday Attacks) | 4,000 | 98.55% | 97.46% | 99.70% | 98.57% | 2.60% | 0.9796 | 0.007 ms |
+| **URL Phishing (v2)** | Random Forest (`n=120`, `depth=12`) | Mitake PhishBenign (Held-out) | 5,992 | 80.22% | **95.65%** | 63.27% | 76.16% | **2.87%** | **0.9244** | 0.011 ms |
+| **SMS Scam (v2)** | TF-IDF + Calibrated LinearSVC | UCI SMS Spam + Curated Indian Scams | 1,121 | **98.31%** | **96.58%** | **90.97%** | **93.70%** | **0.52%** | **0.9873** | 0.025 ms |
+| **Network Anomaly** | Isolation Forest (`contam=0.03`) | CICIDS-2017 (Monday + Friday Attacks) | 4,000 | **98.58%** | **97.46%** | **99.70%** | **98.57%** | **2.60%** | **0.9796** | 0.006 ms |
 
 ### On-Device ExecuTorch Llama 3.2 1B-Instruct Telemetry
 
@@ -83,9 +83,12 @@ shieldedge/
 │
 ├── shieldedge/                   # Core application package
 │   ├── __init__.py
-│   ├── url_detector.py           # Lexical URL feature extraction & RF predictor
-│   ├── sms_detector.py           # SMS text preprocessor & LinearSVC pipeline
+│   ├── url_detector.py           # 22-feature lexical URL extraction & RF predictor
+│   ├── sms_detector.py           # Multilingual (English + Hindi/Hinglish) SMS detector
 │   ├── network_detector.py       # Flow feature extractor & Isolation Forest
+│   ├── qr_scanner.py             # Computer vision QR threat decoder & pipeline
+│   ├── api_server.py             # Local REST API service (JSON endpoints)
+│   ├── dashboard.py              # Visual terminal threat dashboard (Rich)
 │   ├── decision_engine.py        # Threat calibration & injection guardrail
 │   ├── prompt_constructor.py     # Llama 3 chat template formatter
 │   ├── llama_runner.py           # Native ExecuTorch binary bridge & template fallback
@@ -146,6 +149,15 @@ python3 shieldedge.py --sms "Dear customer, your State Bank account will be bloc
 
 # Analyze a network flow (port, byte_rate, pkt_rate)
 python3 shieldedge.py --flow 4444 2000000 600
+
+# Scan a physical or digital QR code image for phishing links
+python3 shieldedge.py --qr /path/to/qr_image.png
+
+# Launch interactive visual threat dashboard
+python3 shieldedge.py --dashboard
+
+# Start local privacy-preserving REST API service
+python3 shieldedge.py --serve --port 5050
 
 # View local security audit log
 python3 shieldedge.py --alerts

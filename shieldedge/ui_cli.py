@@ -105,6 +105,10 @@ def main():
                         help="Analyze simulated flow: <port> <bytes/s> <pkts/s>")
     parser.add_argument("--alerts", action="store_true", help="Display recent security alerts log")
     parser.add_argument("--benchmark", action="store_true", help="Run 100-sample latency and memory benchmark")
+    parser.add_argument("--serve", action="store_true", help="Start REST API server on localhost:5050")
+    parser.add_argument("--port", type=int, default=5050, help="Port for REST API server (default: 5050)")
+    parser.add_argument("--qr", type=str, help="Scan a QR code image for malicious URLs")
+    parser.add_argument("--dashboard", action="store_true", help="Show threat intelligence dashboard")
 
     args = parser.parse_args()
 
@@ -169,6 +173,30 @@ def main():
         print(f"Network Detector Average Latency:   {t_net:.3f} ms / query")
         print(f"Peak Process Memory (RSS):          {mem_mb:.2f} MB")
         print(f"Target Hardware Footprint:          < 100 ms latency, < 200 MB RAM (PASSED)")
+    elif args.serve:
+        from shieldedge.api_server import app
+        print(f"\n[ShieldEdge API Server] Starting on http://localhost:{args.port}")
+        print("[ShieldEdge API Server] Endpoints:")
+        print("  POST /analyze/url   — URL phishing check")
+        print("  POST /analyze/sms   — SMS scam check")
+        print("  POST /analyze/flow  — Network anomaly check")
+        print("  GET  /alerts        — Recent alerts log")
+        print("  GET  /stats         — Detection statistics")
+        print("  GET  /health        — Health check")
+        app.run(host="0.0.0.0", port=args.port, debug=False)
+    elif args.qr:
+        from shieldedge.qr_scanner import QRScanner, print_scan_result
+        scanner = QRScanner(url_det)
+        scan_res = scanner.scan(args.qr)
+        print_scan_result(scan_res)
+        for r in scan_res.get("results", []):
+            if r.get("is_url") and r.get("url_analysis", {}).get("verdict") in {"PHISHING", "SUSPICIOUS"}:
+                print("\n[Alert: Embedded Malicious Link Triggered AI Advisory]")
+                url_raw = url_det.predict(r["raw_data"])
+                run_pipeline(url_raw, engine, runner, logger)
+    elif args.dashboard:
+        from shieldedge.dashboard import show_dashboard
+        show_dashboard()
     else:
         parser.print_help()
 

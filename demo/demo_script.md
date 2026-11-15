@@ -104,3 +104,74 @@ python3 models/evaluate_models.py
 ```
 
 Results are logged directly to `results/benchmarks.md`.
+
+---
+
+## 🧪 Demo 7: QR Code Threat Scanner
+
+Scan a physical or digital QR code image for malicious URLs and credential harvesting links:
+
+```bash
+# Generate a test phishing QR code
+python3 -c "from shieldedge.qr_scanner import generate_test_qr; generate_test_qr('http://sbi-net-banking-update.xyz/login/verify', '/tmp/test_qr.png')"
+
+# Scan the QR code with ShieldEdge
+python3 shieldedge.py --qr /tmp/test_qr.png
+```
+
+### Expected Output:
+- **QR Codes Found:** 1
+- **Overall Verdict:** `PHISHING`
+- **Extracted URL & Signals:** Insecure protocol, spoofed brand, suspicious TLD, authentication path.
+- **Triggered Remediation Pipeline:** Automatic link analysis and advisory.
+
+---
+
+## 🧪 Demo 8: Hindi / Hinglish Regional SMS Scam Detection
+
+Simulate an incoming Hinglish scam message targeting Indian banking users:
+
+```bash
+python3 shieldedge.py --sms "Aapka SBI khata band ho jayega. Turant kyc update karo: http://sbi-verify.xyz Helpline: 9876543210"
+```
+
+### Expected Output:
+- **Verdict:** `[!] SCAM DETECTED` (Confidence: 100%)
+- **Identified Signals:** Hindi/Hinglish scam phrases (`band ho jayega`, `turant`), Financial authority mentions (`SBI`, `KYC`), Embedded phishing link.
+
+---
+
+## 🧪 Demo 9: Terminal Threat Intelligence Dashboard
+
+Launch the interactive, terminal-based visual dashboard powered by Rich:
+
+```bash
+python3 shieldedge.py --dashboard
+```
+
+Displays total scan count, threat rate, breakdown by threat type (URL/SMS/Network), verdict distribution bar chart, and recent security logs from the local SQLite database.
+
+---
+
+## 🧪 Demo 10: Local Privacy-First REST API Service
+
+Run ShieldEdge as a background daemon or microservice accessible to native apps via JSON REST API:
+
+```bash
+# Start server on port 5050
+python3 shieldedge.py --serve &
+
+# Query URL endpoint
+curl -s -X POST http://localhost:5050/analyze/url \
+  -H "Content-Type: application/json" \
+  -d '{"url": "http://sbi-net-banking-update.xyz/login"}'
+
+# Query SMS endpoint
+curl -s -X POST http://localhost:5050/analyze/sms \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Aapki bijli 2 ghante mein band ho jayegi. Bijli bill pay karo: http://electricity-pay.top"}'
+
+# Check health and stats
+curl -s http://localhost:5050/health
+curl -s http://localhost:5050/stats
+```

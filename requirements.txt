@@ -8,5 +8,13 @@ tqdm>=4.66.0
 # System Benchmarking & Hardware Profiling
 psutil>=5.9.0
 
-# Optional Web / UI
+# Terminal UI & Visualization
+rich>=13.7.0
+
+# Optional Web / UI & REST API
 flask>=3.0.0
+
+# QR Threat Scanner
+opencv-python-headless>=4.9.0
+pyzbar>=0.1.9
+qrcode[pil]>=7.4.2

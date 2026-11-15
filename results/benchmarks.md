@@ -2,7 +2,7 @@
 
 > **Test Hardware:** Dell Inspiron 15 3520 (Intel Core i3/i5 12th Gen, x86_64, 15GB RAM, Ubuntu 24.04 LTS)  
 > **Evaluation Mode:** Local on-device execution (100% offline, zero cloud calls)  
-> **Date Generated:** 2026-11-15 03:08:57
+> **Date Generated:** 2026-11-15 21:09:52
 
 ---
 
@@ -12,9 +12,9 @@ Evaluated strictly on held-out test splits not used during model training.
 
 | Task | Model Architecture | Evaluation Dataset | Test Samples | Accuracy | Precision | Recall | F1-Score | False Positive Rate | ROC-AUC | Avg Latency / Sample |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **URL Phishing** | Random Forest (`n=100`, `depth=10`) | Mitake + Curated Phish (Held-out) | 5,992 | 80.07% | 82.38% | 76.44% | 79.30% | 16.30% | 0.8958 | 0.010 ms |
-| **SMS Scam** | TF-IDF + Calibrated LinearSVC | UCI SMS Spam + Curated Indian Scams | 1,117 | 98.03% | 96.40% | 88.74% | 92.41% | 0.52% | 0.9857 | 0.023 ms |
-| **Network Anomaly** | Isolation Forest (`contam=0.03`) | CICIDS-2017 (Monday Normal + Friday Attacks) | 4,000 | 98.55% | 97.46% | 99.70% | 98.57% | 2.60% | 0.9796 | 0.007 ms |
+| **URL Phishing** | Random Forest (`n=100`, `depth=10`) | Mitake + Curated Phish (Held-out) | 5,992 | 80.22% | 95.65% | 63.27% | 76.16% | 2.87% | 0.9244 | 0.011 ms |
+| **SMS Scam** | TF-IDF + Calibrated LinearSVC | UCI SMS Spam + Curated Indian Scams | 1,121 | 98.31% | 96.58% | 90.97% | 93.69% | 0.52% | 0.9874 | 0.025 ms |
+| **Network Anomaly** | Isolation Forest (`contam=0.03`) | CICIDS-2017 (Monday Normal + Friday Attacks) | 4,000 | 98.55% | 97.46% | 99.70% | 98.57% | 2.60% | 0.9796 | 0.006 ms |
 
 ---
 
