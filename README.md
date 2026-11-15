@@ -58,9 +58,9 @@ All models are evaluated on held-out test splits from real benchmark datasets:
 
 | Modality | Architecture | Dataset | Test Samples | Accuracy | Precision | Recall | F1-Score | FPR | ROC-AUC | Latency / Sample |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **URL Phishing (v2)** | Random Forest (`n=120`, `depth=12`) | Mitake PhishBenign (Held-out) | 5,992 | 80.22% | **95.65%** | 63.27% | 76.16% | **2.87%** | **0.9244** | 0.011 ms |
-| **SMS Scam (v2)** | TF-IDF + Calibrated LinearSVC | UCI SMS Spam + Curated Indian Scams | 1,121 | **98.31%** | **96.58%** | **90.97%** | **93.70%** | **0.52%** | **0.9873** | 0.025 ms |
-| **Network Anomaly** | Isolation Forest (`contam=0.03`) | CICIDS-2017 (Monday + Friday Attacks) | 4,000 | **98.58%** | **97.46%** | **99.70%** | **98.57%** | **2.60%** | **0.9796** | 0.006 ms |
+| **URL Phishing (v2.1)** | Soft-Voting Ensemble (RF + HGB) | Mitake PhishBenign (Held-out) | 5,992 | **83.49%** | **95.42%** | **70.32%** | **80.97%** | **3.37%** | **0.9419** | 0.016 ms |
+| **SMS Scam (v2.1)** | TF-IDF (1,3 + Sublinear) + Calib LinearSVC | UCI SMS Spam + Curated Indian Scams | 1,121 | **98.48%** | **97.26%** | **91.61%** | **94.35%** | **0.41%** | **0.9877** | 0.029 ms |
+| **Network Anomaly** | Isolation Forest (`contam=0.03`) | CICIDS-2017 (Monday + Friday Attacks) | 4,000 | **98.58%** | **97.46%** | **99.70%** | **98.57%** | **2.60%** | **0.9796** | 0.007 ms |
 
 ### On-Device ExecuTorch Llama 3.2 1B-Instruct Telemetry
 
@@ -141,11 +141,14 @@ pip install -r requirements.txt
 ### 2. Run Threat Detection (CLI)
 
 ```bash
-# Analyze a suspicious banking link
+# Analyze a suspicious banking link (full ExecuTorch on-device Llama advisory)
 python3 shieldedge.py --url "http://sbi-net-banking-update.xyz/login"
 
+# Instant mode (<15ms) using deterministic rule explainer instead of LLM
+python3 shieldedge.py --url "http://sbi-net-banking-update.xyz/login" --fast
+
 # Analyze an incoming SMS scam message
-python3 shieldedge.py --sms "Dear customer, your State Bank account will be blocked. Update KYC at http://sbi-verify.xyz"
+python3 shieldedge.py --sms "Dear customer, your State Bank account will be blocked. Update KYC at http://sbi-verify.xyz" --fast
 
 # Analyze a network flow (port, byte_rate, pkt_rate)
 python3 shieldedge.py --flow 4444 2000000 600

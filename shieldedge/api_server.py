@@ -86,7 +86,7 @@ def _get_logger():
     return _logger
 
 
-def _run_pipeline(raw_result: dict, input_type_key: str) -> dict:
+def _run_pipeline(raw_result: dict, input_type_key: str, explain: bool = False) -> dict:
     """Run decision engine + logging and return structured JSON response."""
     t0 = time.perf_counter()
     engine = _get_engine()
@@ -100,17 +100,23 @@ def _run_pipeline(raw_result: dict, input_type_key: str) -> dict:
     if verdict not in ("SAFE",):
         _threat_count[input_type_key] += 1
 
+    remediation_text = ""
+    if explain and eval_res.get("requires_advisory"):
+        from shieldedge.llama_runner import LlamaAdvisoryRunner
+        runner = LlamaAdvisoryRunner()
+        remediation_text = runner._generate_template_advisory(eval_res)
+
     logger.log_alert(
         input_type=eval_res["input_type"],
         raw_input=raw_result.get("input", ""),
         verdict=verdict,
         confidence=conf,
-        remediation=""
+        remediation=remediation_text
     )
 
     latency_ms = round((time.perf_counter() - t0) * 1000, 2)
 
-    return {
+    res = {
         "verdict": verdict,
         "confidence": conf,
         "input_type": eval_res["input_type"],
@@ -119,6 +125,9 @@ def _run_pipeline(raw_result: dict, input_type_key: str) -> dict:
         "latency_ms": latency_ms,
         "timestamp": datetime.utcnow().isoformat() + "Z",
     }
+    if explain:
+        res["advisory"] = remediation_text
+    return res
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +154,7 @@ def health():
 def analyze_url():
     """
     Analyze a URL for phishing.
-    Body: {"url": "https://example.com"}
+    Body: {"url": "https://example.com", "explain": false}
     """
     data = request.get_json(silent=True) or {}
     url = data.get("url", "").strip()
@@ -155,7 +164,7 @@ def analyze_url():
         abort(400, description="URL too long (max 2048 chars)")
 
     raw = _get_url_det().predict(url)
-    response = _run_pipeline(raw, "url")
+    response = _run_pipeline(raw, "url", explain=bool(data.get("explain", False)))
     response["features"] = raw.get("features", {})
     return jsonify(response)
 
@@ -164,7 +173,7 @@ def analyze_url():
 def analyze_sms():
     """
     Analyze an SMS for scam/smishing.
-    Body: {"message": "Your account is blocked..."}
+    Body: {"message": "Your account is blocked...", "explain": false}
     """
     data = request.get_json(silent=True) or {}
     message = data.get("message", "").strip()
@@ -174,7 +183,7 @@ def analyze_sms():
         abort(400, description="Message too long (max 1600 chars)")
 
     raw = _get_sms_det().predict(message)
-    response = _run_pipeline(raw, "sms")
+    response = _run_pipeline(raw, "sms", explain=bool(data.get("explain", False)))
     return jsonify(response)
 
 
@@ -182,7 +191,7 @@ def analyze_sms():
 def analyze_flow():
     """
     Analyze a network flow for anomalies.
-    Body: {"dst_port": 4444, "byte_rate": 2000000, "packet_rate": 600}
+    Body: {"dst_port": 4444, "byte_rate": 2000000, "packet_rate": 600, "explain": false}
     """
     data = request.get_json(silent=True) or {}
     try:
@@ -195,7 +204,7 @@ def analyze_flow():
         abort(400, description="Invalid flow parameters. Expected: dst_port (int), byte_rate (float), packet_rate (float)")
 
     raw = _get_net_det().predict_flow(flow)
-    response = _run_pipeline(raw, "flow")
+    response = _run_pipeline(raw, "flow", explain=bool(data.get("explain", False)))
     return jsonify(response)
 
 

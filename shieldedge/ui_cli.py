@@ -37,7 +37,7 @@ def print_banner():
     print(banner)
 
 
-def run_pipeline(detection_result: dict, decision_engine: DecisionEngine, advisory_runner: LlamaAdvisoryRunner, logger: AlertLogger):
+def run_pipeline(detection_result: dict, decision_engine: DecisionEngine, advisory_runner: LlamaAdvisoryRunner, logger: AlertLogger, fast_mode: bool = False):
     t0 = time.perf_counter()
     eval_res = decision_engine.evaluate(detection_result)
     
@@ -67,21 +67,32 @@ def run_pipeline(detection_result: dict, decision_engine: DecisionEngine, adviso
 
     advisory_text = ""
     if eval_res["requires_advisory"]:
-        print("\n[AI Advisory & Explainer (Running on-device Llama 3.2 via ExecuTorch...)]")
-        prompt = construct_prompt(eval_res)
-        adv_res = advisory_runner.generate_advisory(eval_res, prompt)
-        print(f"Engine: {adv_res['source']}\n")
-        advisory_text = adv_res["advisory"]
-        print(advisory_text)
-        if adv_res.get("metrics"):
-            m = adv_res["metrics"]
-            ttft = m.get('first_token_ms', 0) - m.get('inference_start_ms', 0)
-            print(f"\n[ExecuTorch Model Telemetry]")
-            print(f"  • Time to First Token (TTFT): {ttft} ms")
-            print(f"  • Prefill Speed:              {m.get('prefill_token_per_sec', 0):.2f} tokens/sec")
-            print(f"  • Decode Speed:               {m.get('decode_token_per_sec', 0):.2f} tokens/sec")
-            print(f"  • Total Tokens:               {m.get('prompt_tokens', 0)} prompt + {m.get('generated_tokens', 0)} generated")
-        print("="*60)
+        if fast_mode:
+            print("\n[AI Advisory & Explainer (Fast Deterministic Mode)]")
+            adv_res = {
+                "source": "ShieldEdge Deterministic Advisory Engine",
+                "advisory": advisory_runner._generate_template_advisory(eval_res)
+            }
+            print(f"Engine: {adv_res['source']}\n")
+            advisory_text = adv_res["advisory"]
+            print(advisory_text)
+            print("="*60)
+        else:
+            print("\n[AI Advisory & Explainer (Running on-device Llama 3.2 via ExecuTorch...)]")
+            prompt = construct_prompt(eval_res)
+            adv_res = advisory_runner.generate_advisory(eval_res, prompt)
+            print(f"Engine: {adv_res['source']}\n")
+            advisory_text = adv_res["advisory"]
+            print(advisory_text)
+            if adv_res.get("metrics"):
+                m = adv_res["metrics"]
+                ttft = m.get('first_token_ms', 0) - m.get('inference_start_ms', 0)
+                print(f"\n[ExecuTorch Model Telemetry]")
+                print(f"  • Time to First Token (TTFT): {ttft} ms")
+                print(f"  • Prefill Speed:              {m.get('prefill_token_per_sec', 0):.2f} tokens/sec")
+                print(f"  • Decode Speed:               {m.get('decode_token_per_sec', 0):.2f} tokens/sec")
+                print(f"  • Total Tokens:               {m.get('prompt_tokens', 0)} prompt + {m.get('generated_tokens', 0)} generated")
+            print("="*60)
 
     # Log to SQLite
     logger.log_alert(
@@ -109,6 +120,7 @@ def main():
     parser.add_argument("--port", type=int, default=5050, help="Port for REST API server (default: 5050)")
     parser.add_argument("--qr", type=str, help="Scan a QR code image for malicious URLs")
     parser.add_argument("--dashboard", action="store_true", help="Show threat intelligence dashboard")
+    parser.add_argument("--fast", action="store_true", help="Fast mode: use instant deterministic explainer (<5ms) instead of LLM")
 
     args = parser.parse_args()
 
@@ -124,10 +136,10 @@ def main():
 
     if args.url:
         res = url_det.predict(args.url)
-        run_pipeline(res, engine, runner, logger)
+        run_pipeline(res, engine, runner, logger, fast_mode=args.fast)
     elif args.sms:
         res = sms_det.predict(args.sms)
-        run_pipeline(res, engine, runner, logger)
+        run_pipeline(res, engine, runner, logger, fast_mode=args.fast)
     elif args.flow:
         flow_dict = {
             "dst_port": int(args.flow[0]),
@@ -135,7 +147,7 @@ def main():
             "packet_rate": float(args.flow[2])
         }
         res = net_det.predict_flow(flow_dict)
-        run_pipeline(res, engine, runner, logger)
+        run_pipeline(res, engine, runner, logger, fast_mode=args.fast)
     elif args.alerts:
         alerts = logger.get_recent_alerts(15)
         print(f"\nRecent Security Audit Logs (Total: {len(alerts)}):")
@@ -193,7 +205,7 @@ def main():
             if r.get("is_url") and r.get("url_analysis", {}).get("verdict") in {"PHISHING", "SUSPICIOUS"}:
                 print("\n[Alert: Embedded Malicious Link Triggered AI Advisory]")
                 url_raw = url_det.predict(r["raw_data"])
-                run_pipeline(url_raw, engine, runner, logger)
+                run_pipeline(url_raw, engine, runner, logger, fast_mode=args.fast)
     elif args.dashboard:
         from shieldedge.dashboard import show_dashboard
         show_dashboard()

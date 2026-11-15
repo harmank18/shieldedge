@@ -8,7 +8,7 @@ import os
 import joblib
 import pandas as pd
 import numpy as np
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, HistGradientBoostingClassifier, VotingClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score, f1_score
 
@@ -44,13 +44,27 @@ def main():
     )
 
     print(f"Training set: {len(X_train)} samples | Test set: {len(X_test)} samples")
-    clf = RandomForestClassifier(
-        n_estimators=120,
+    rf = RandomForestClassifier(
+        n_estimators=100,
         max_depth=12,
         class_weight={0: 2.0, 1: 1.0},
         min_samples_leaf=2,
         random_state=42,
         n_jobs=-1
+    )
+    hgb = HistGradientBoostingClassifier(
+        max_iter=150,
+        max_depth=10,
+        class_weight={0: 2.2, 1: 1.0},
+        min_samples_leaf=20,
+        l2_regularization=0.1,
+        random_state=42
+    )
+
+    clf = VotingClassifier(
+        estimators=[("rf", rf), ("hgb", hgb)],
+        voting="soft",
+        weights=[1, 2]
     )
     clf.fit(X_train, y_train)
 

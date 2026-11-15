@@ -168,13 +168,13 @@ All models were evaluated strictly against held-out test splits not encountered 
 
 | Detection Task | Algorithm | Evaluation Dataset | Test Samples | Accuracy | Precision | Recall | F1-Score | False Positive Rate | ROC-AUC | Latency / Sample |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **URL Phishing (v2)** | Random Forest | Mitake PhishBenign (Held-out) | 5,992 | 80.22% | **95.65%** | 63.27% | 76.16% | **2.87%** | **0.9244** | **0.011 ms** |
-| **SMS Scam (v2)** | Calibrated LinearSVC | UCI SMS Spam + Curated Indian/Hinglish Scams | 1,121 | **98.31%** | **96.58%** | **90.97%** | **93.70%** | **0.52%** | **0.9873** | **0.025 ms** |
-| **Network Anomaly** | Isolation Forest | CICIDS-2017 (Monday + Friday Attacks) | 4,000 | **98.58%** | **97.46%** | **99.70%** | **98.57%** | **2.60%** | **0.9796** | **0.006 ms** |
+| **URL Phishing (v2.1)** | Soft-Voting Ensemble (RF + HGB) | Mitake PhishBenign (Held-out) | 5,992 | **83.49%** | **95.42%** | **70.32%** | **80.97%** | **3.37%** | **0.9419** | **0.016 ms** |
+| **SMS Scam (v2.1)** | Calibrated LinearSVC (Sublinear TF) | UCI SMS Spam + Curated Indian/Hinglish Scams | 1,121 | **98.48%** | **97.26%** | **91.61%** | **94.35%** | **0.41%** | **0.9877** | **0.029 ms** |
+| **Network Anomaly** | Isolation Forest | CICIDS-2017 (Monday + Friday Attacks) | 4,000 | **98.58%** | **97.46%** | **99.70%** | **98.57%** | **2.60%** | **0.9796** | **0.007 ms** |
 
 *Key Findings:*
-- **FPR Reduction:** The v2 URL feature extraction pipeline slashed the False Positive Rate from 16.30% to **2.87%** (an 82% reduction) while elevating precision to **95.65%** and ROC-AUC to **0.9244**.
-- **SMS Precision:** Maintaining an SMS False Positive Rate of **0.52%** ensures legitimate banking OTPs and transactional notifications are never falsely flagged.
+- **Ensemble Generalization:** The v2.1 Soft-Voting Ensemble (Random Forest + HistGradientBoosting) pushed URL accuracy to **83.49%**, F1-Score to **80.97%**, and Recall to **70.32%** (catching over 70% of zero-day phishing links on lexical structure alone) while preserving high Precision (**95.42%**) and a low False Positive Rate of **3.37%**.
+- **SMS Precision & Indian Context:** Upgrading to sublinear TF scaling with 1-to-3 character and word n-grams elevated SMS F1 to **94.35%** and accuracy to **98.48%**, while driving the False Positive Rate down to an outstanding **0.41%** (only 4 false alarms out of 966 legitimate messages).
 - **Microsecond Latency:** All three detectors execute in under **0.03 milliseconds**, ensuring immediate response before any web page loads or notification alerts.
 
 ### 6.2 ExecuTorch Llama 3.2 1B-Instruct Telemetry

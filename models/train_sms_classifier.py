@@ -36,12 +36,12 @@ def main():
 
     print(f"Training set: {len(X_train)} samples | Test set: {len(X_test)} samples")
 
-    # Pipeline: TF-IDF + Calibrated LinearSVC (so predict_proba is supported)
-    base_svc = LinearSVC(random_state=42, dual=False, max_iter=2000)
+    # Pipeline: TF-IDF with sublinear scaling & n-grams (1,3) + Calibrated LinearSVC
+    base_svc = LinearSVC(random_state=42, dual=False, max_iter=3000)
     calibrated_svc = CalibratedClassifierCV(estimator=base_svc, cv=3)
 
     pipeline = Pipeline([
-        ("tfidf", TfidfVectorizer(max_features=4000, ngram_range=(1, 2), stop_words="english")),
+        ("tfidf", TfidfVectorizer(max_features=4000, ngram_range=(1, 3), stop_words="english", sublinear_tf=True)),
         ("clf", calibrated_svc)
     ])
 
