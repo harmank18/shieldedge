@@ -1,66 +1,64 @@
 """
-Training script for Network Flow Anomaly Detector.
-Trains an Isolation Forest model on real baseline traffic flows from CICIDS-2017
-and evaluates detection performance against real intrusion/attack flows (DDoS, PortScan, Botnet).
-Exports the model to models/network_isolation_forest.joblib.
+Train the ShieldEdge network anomaly detector (unsupervised).
+
+Model     : log1p -> StandardScaler -> IsolationForest(200 trees), fitted on 60k
+            benign CIC-IDS-2017 Monday flows only.
+Thresholds: from the anomaly-score distribution of 20k *held-out benign* flows:
+              ANOMALY    >= 99th percentile   (~1% of normal flows)
+              SUSPICIOUS >= 98th percentile   (~2% of normal flows raise any alert)
+            No attack data is used for training or threshold selection.
+Evaluate  : models/evaluate_models.py (Friday benign + Friday attacks, i.e. a different day).
+
+Run: python data/build_network_dataset.py && python models/train_network_detector.py
 """
 
 import os
+import sys
+import time
+
 import joblib
 import numpy as np
 import pandas as pd
+import sklearn
 from sklearn.ensemble import IsolationForest
-from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score, f1_score
-
-from shieldedge.network_detector import FLOW_FEATURE_NAMES
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import FunctionTransformer, StandardScaler
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TRAIN_DATA_PATH = os.path.join(BASE_DIR, "data", "raw", "network_train.csv")
-TEST_DATA_PATH = os.path.join(BASE_DIR, "data", "raw", "network_test.csv")
+sys.path.insert(0, BASE_DIR)
+
+from shieldedge.network_detector import FLOW_FEATURE_NAMES, log1p_clip  # noqa: E402
+
+PROCESSED = os.path.join(BASE_DIR, "data", "processed")
 MODEL_OUT = os.path.join(BASE_DIR, "models", "network_isolation_forest.joblib")
 
 
 def main():
-    if not os.path.exists(TRAIN_DATA_PATH) or not os.path.exists(TEST_DATA_PATH):
-        raise FileNotFoundError("Network dataset not found. Run download_datasets.py first.")
+    train = pd.read_csv(os.path.join(PROCESSED, "net_train.csv"))
+    holdout = pd.read_csv(os.path.join(PROCESSED, "net_holdout.csv"))
 
-    print(f"Loading real baseline flows from {TRAIN_DATA_PATH}...")
-    df_train = pd.read_csv(TRAIN_DATA_PATH)
-    X_train = df_train[FLOW_FEATURE_NAMES].values
+    pipe = make_pipeline(FunctionTransformer(log1p_clip), StandardScaler(),
+                         IsolationForest(n_estimators=200, max_samples=512, random_state=42, n_jobs=-1))
+    pipe.fit(train[FLOW_FEATURE_NAMES].values)
 
-    print(f"Training Isolation Forest on {len(X_train)} real baseline flows...")
-    model = IsolationForest(n_estimators=100, contamination=0.03, random_state=42)
-    model.fit(X_train)
-
-    print(f"Loading test set with real intrusion flows from {TEST_DATA_PATH}...")
-    df_test = pd.read_csv(TEST_DATA_PATH)
-    X_test = df_test[FLOW_FEATURE_NAMES].values
-    y_test = df_test["is_anomaly"].values
-
-    # Isolation Forest: -1 = anomaly, 1 = normal
-    raw_preds = model.predict(X_test)
-    y_pred = np.where(raw_preds == -1, 1, 0)
-    scores = -model.score_samples(X_test)
-
-    cm = confusion_matrix(y_test, y_pred)
-    tn, fp, fn, tp = cm.ravel()
-    fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
-    f1 = f1_score(y_test, y_pred)
-    auc = roc_auc_score(y_test, scores)
-
-    print("\n=== Network Anomaly Detector Performance on CICIDS-2017 Test Set ===")
-    print(f"Accuracy:        {(tp + tn) / len(y_test):.4f}")
-    print(f"Precision:       {tp / max(1, tp + fp):.4f}")
-    print(f"Recall:          {tp / max(1, tp + fn):.4f}")
-    print(f"F1-Score:        {f1:.4f}")
-    print(f"False Pos Rate:  {fpr:.4f}")
-    print(f"ROC-AUC:         {auc:.4f}")
-    print("\nConfusion Matrix:")
-    print(f"TN: {tn} | FP: {fp}\nFN: {fn} | TP: {tp}")
-
-    os.makedirs(os.path.dirname(MODEL_OUT), exist_ok=True)
-    joblib.dump(model, MODEL_OUT)
-    print(f"\nModel exported successfully to: {MODEL_OUT}")
+    s = -pipe.score_samples(holdout[FLOW_FEATURE_NAMES].values)
+    bundle = {
+        "pipeline": pipe,
+        "feature_names": FLOW_FEATURE_NAMES,
+        "threshold_anomaly": float(np.quantile(s, 0.99)),
+        "threshold_suspicious": float(np.quantile(s, 0.98)),
+        "score_p50": float(np.quantile(s, 0.50)),
+        "score_p999": float(np.quantile(s, 0.999)),
+        "benign_score_quantiles": np.quantile(s, np.linspace(0, 1, 1001)),
+        "medians": train[FLOW_FEATURE_NAMES].median().to_dict(),
+        "meta": {
+            "dataset": "CIC-IDS-2017 (bvk/CICIDS-2017) Monday benign: 60k train, 20k threshold holdout",
+            "sklearn": sklearn.__version__, "trained": time.strftime("%Y-%m-%d"),
+        },
+    }
+    joblib.dump(bundle, MODEL_OUT, compress=3)
+    print(f"Thresholds: SUSPICIOUS>={bundle['threshold_suspicious']:.4f}, ANOMALY>={bundle['threshold_anomaly']:.4f}")
+    print(f"Saved {MODEL_OUT} ({os.path.getsize(MODEL_OUT) / 1e6:.2f} MB). Run models/evaluate_models.py for metrics.")
 
 
 if __name__ == "__main__":

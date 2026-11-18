@@ -1,80 +1,193 @@
 """
-Network Flow Anomaly Detection Module for ShieldEdge.
-Uses unsupervised Isolation Forest and flow heuristics to detect
-suspicious outbound connections, C2 activity, and port scans.
+Network flow anomaly detector for ShieldEdge.
+
+  * Input: bidirectional flow records as produced by CICFlowMeter (the tool
+    behind CIC-IDS-2017) - either a CSV (`predict_csv`) or a single dict
+    (`predict_flow`). No packet capture happens in Phase 1.
+  * Model: Isolation Forest on log1p-scaled, standardised flow statistics,
+    trained only on *benign* traffic (CIC-IDS-2017 Monday). Thresholds are
+    percentiles of the anomaly score on held-out benign flows, so no attack
+    labels are used for training or tuning.
+  * Rules add plain-language signals (scan-like resets, remote-access ports,
+    very high packet rates, large uploads). A known remote-access port can
+    raise a flow to SUSPICIOUS but never to ANOMALY on its own.
+  * Missing features (e.g. the 3-number `--flow` shortcut) are filled with
+    benign medians, not zeros, and reported as imputed.
 """
 
 import os
+import re
+
 import joblib
 import numpy as np
+import pandas as pd
 
 FLOW_FEATURE_NAMES = [
-    "duration",
-    "total_fwd_packets",
-    "total_bwd_packets",
-    "total_fwd_bytes",
-    "total_bwd_bytes",
-    "packet_rate",
-    "byte_rate",
-    "dst_port",
-    "is_tcp",
-    "syn_flag_count",
-    "rst_flag_count"
+    "duration", "total_fwd_packets", "total_bwd_packets", "total_fwd_bytes", "total_bwd_bytes",
+    "packet_rate", "byte_rate", "dst_port", "is_tcp", "syn_flag_count", "rst_flag_count",
+    "fin_flag_count", "ack_flag_count", "psh_flag_count", "fwd_pkt_len_mean", "bwd_pkt_len_mean",
+    "flow_iat_mean", "fwd_init_win",
 ]
 
-SUSPICIOUS_C2_PORTS = {4444, 1337, 6667, 8888, 9999, 31337}
+# CICFlowMeter / CIC-IDS-2017 column names (normalised: lower-case, alphanumerics only) -> feature
+CIC_COLUMNS = {
+    "flowduration": "duration",
+    "totalfwdpacket": "total_fwd_packets", "totalfwdpackets": "total_fwd_packets",
+    "totalbwdpackets": "total_bwd_packets", "totalbackwardpackets": "total_bwd_packets",
+    "totallengthoffwdpacket": "total_fwd_bytes", "totallengthoffwdpackets": "total_fwd_bytes",
+    "totallengthofbwdpacket": "total_bwd_bytes", "totallengthofbwdpackets": "total_bwd_bytes",
+    "flowpacketss": "packet_rate", "flowbytess": "byte_rate",
+    "dstport": "dst_port", "destinationport": "dst_port",
+    "protocol": "protocol",
+    "synflagcount": "syn_flag_count", "rstflagcount": "rst_flag_count", "finflagcount": "fin_flag_count",
+    "ackflagcount": "ack_flag_count", "pshflagcount": "psh_flag_count",
+    "fwdpacketlengthmean": "fwd_pkt_len_mean", "bwdpacketlengthmean": "bwd_pkt_len_mean",
+    "flowiatmean": "flow_iat_mean",
+    "fwdinitwinbytes": "fwd_init_win", "initwinbytesforward": "fwd_init_win",
+    "label": "label",
+}
+MICROSECOND_COLUMNS = ("duration", "flow_iat_mean")  # CICFlowMeter reports these in microseconds
+
+REMOTE_ACCESS_PORTS = {4444: "Metasploit/remote shell", 1337: "backdoor", 31337: "Back Orifice",
+                       6667: "IRC botnet control", 5555: "Android debug bridge", 23: "Telnet", 2323: "Telnet (IoT botnets)"}
+
+
+def log1p_clip(X):
+    """Log-scale heavy-tailed flow statistics (module-level so the model pickles)."""
+    return np.log1p(np.clip(np.asarray(X, dtype=float), 0, None))
+
+
+def _norm_col(c: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(c).lower())
+
+
+def cic_to_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Map a CICFlowMeter-style dataframe to ShieldEdge features (+ 'label' if present)."""
+    mapped = {}
+    for col in df.columns:
+        key = CIC_COLUMNS.get(_norm_col(col))
+        if key and key not in mapped:
+            mapped[key] = df[col]
+    out = pd.DataFrame(mapped)
+    for c in MICROSECOND_COLUMNS:
+        if c in out:
+            out[c] = pd.to_numeric(out[c], errors="coerce") / 1e6
+    if "protocol" in out:
+        out["is_tcp"] = (pd.to_numeric(out["protocol"], errors="coerce") == 6).astype(int)
+        out = out.drop(columns="protocol")
+    for c in out.columns:
+        if c != "label":
+            out[c] = pd.to_numeric(out[c], errors="coerce")
+    return out.replace([np.inf, -np.inf], np.nan)
+
+
+def flow_summary(f: dict) -> str:
+    proto = "TCP" if f.get("is_tcp", 0) else "UDP/other"
+    parts = [f"{proto} to port {int(f.get('dst_port', 0))}"]
+    if f.get("duration") is not None and not pd.isna(f.get("duration")):
+        parts.append(f"{f['duration']:.3f}s")
+    pk = (f.get("total_fwd_packets") or 0) + (f.get("total_bwd_packets") or 0)
+    if pk:
+        parts.append(f"{int(pk)} pkts")
+    return ", ".join(parts)
+
+
+def rule_signals(f: dict) -> list:
+    s = []
+    port = int(f.get("dst_port", 0) or 0)
+    if port in REMOTE_ACCESS_PORTS:
+        s.append(f"Connects to port {port}, often used by {REMOTE_ACCESS_PORTS[port]} tools")
+    pk = (f.get("total_fwd_packets") or 0) + (f.get("total_bwd_packets") or 0)
+    if f.get("syn_flag_count", 0) and f.get("rst_flag_count", 0) and (f.get("duration") or 1) < 0.01 and pk <= 4:
+        s.append("Very short connection that was reset immediately, typical of port scanning")
+    if (f.get("packet_rate") or 0) > 20_000 and pk >= 10:
+        s.append(f"Extremely high packet rate ({f['packet_rate']:,.0f} packets/s)")
+    if (f.get("total_fwd_bytes") or 0) > 20_000_000:
+        s.append(f"Large upload from this device ({f['total_fwd_bytes'] / 1e6:.0f} MB)")
+    return s
 
 
 class NetworkDetector:
     def __init__(self, model_path: str = None):
-        self.model = None
+        self.bundle = None
         if model_path and os.path.exists(model_path):
-            self.model = joblib.load(model_path)
+            obj = joblib.load(model_path)
+            if isinstance(obj, dict) and "pipeline" in obj:
+                self.bundle = obj
+        self.medians = (self.bundle or {}).get("medians", {})
 
-    def predict_flow(self, flow_dict: dict) -> dict:
-        """
-        Analyzes a single network flow dictionary.
-        Returns verdict (NORMAL / ANOMALY) and confidence/anomaly score.
-        """
-        signals = []
-        dst_port = int(flow_dict.get("dst_port", 80))
-        byte_rate = float(flow_dict.get("byte_rate", 0))
-        packet_rate = float(flow_dict.get("packet_rate", 0))
+    # ------------------------------------------------------------------ scoring
+    def _matrix(self, feats: pd.DataFrame):
+        X = feats.reindex(columns=FLOW_FEATURE_NAMES)
+        imputed = X.isna()
+        X = X.fillna(pd.Series(self.medians)).fillna(0.0)
+        return X.values.astype(float), imputed
 
-        if dst_port in SUSPICIOUS_C2_PORTS:
-            signals.append(f"Outbound connection to notorious Trojan/C2 port ({dst_port})")
+    def scores(self, feats: pd.DataFrame) -> np.ndarray:
+        X, _ = self._matrix(feats)
+        if self.bundle is None:
+            return np.zeros(len(X))
+        return -self.bundle["pipeline"].score_samples(X)
 
-        if packet_rate > 500:
-            signals.append(f"Abnormally high packet rate ({packet_rate:.1f} pkts/s), potential DoS or scan")
-
-        if byte_rate > 1_000_000:
-            signals.append(f"Unusual high outbound data burst ({byte_rate/1024/1024:.2f} MB/s), potential data exfiltration")
-
-        vector = np.array([[float(flow_dict.get(k, 0)) for k in FLOW_FEATURE_NAMES]])
-
-        if self.model is not None:
-            # IsolationForest: -1 is anomaly, 1 is normal
-            pred = self.model.predict(vector)[0]
-            score = -self.model.score_samples(vector)[0]  # higher score = more anomalous
-            # Normalize score to approximate 0.0 - 1.0 confidence
-            anomaly_conf = float(1.0 / (1.0 + np.exp(-3 * (score - 0.5))))
-            is_anomaly = (pred == -1) or (anomaly_conf > 0.6)
-            if is_anomaly and not signals:
-                signals.append(f"Statistical flow pattern anomaly detected by Isolation Forest (anomaly score: {score:.3f})")
+    def _verdict(self, score: float, f: dict, imputed_cols=()):
+        signals = rule_signals(f)
+        if self.bundle is None:
+            verdict = "SUSPICIOUS" if signals else "SAFE"
+            conf = 0.6
         else:
-            is_anomaly = len(signals) > 0
-            anomaly_conf = 0.85 if is_anomaly else 0.15
+            t_a, t_s = self.bundle["threshold_anomaly"], self.bundle["threshold_suspicious"]
+            if score >= t_a:
+                verdict = "ANOMALY"
+            elif score >= t_s:
+                verdict = "SUSPICIOUS"
+            else:
+                verdict = "SAFE"
+            if verdict == "SAFE" and any("port" in s and "often used" in s for s in signals):
+                verdict = "SUSPICIOUS"
+            # map score to a confidence-like number relative to the benign score distribution
+            lo, hi = self.bundle["score_p50"], self.bundle["score_p999"]
+            rel = float(np.clip((score - lo) / max(1e-9, hi - lo), 0, 1))
+            conf = 0.5 + 0.5 * rel if verdict != "SAFE" else 1.0 - 0.5 * rel
+            if verdict != "SAFE":
+                signals.append(f"Traffic pattern is more unusual than {self._pct(score):.1f}% of normal flows")
+        if imputed_cols:
+            signals.append(f"Only partial flow data was available ({len(FLOW_FEATURE_NAMES) - len(imputed_cols)}/{len(FLOW_FEATURE_NAMES)} features)")
+        return verdict, round(conf, 3), signals
 
-        if len(signals) > 0:
-            is_anomaly = True
-            anomaly_conf = max(anomaly_conf, 0.88)
+    def _pct(self, score: float) -> float:
+        ref = self.bundle["benign_score_quantiles"]
+        return float(np.searchsorted(ref, score) / len(ref) * 100)
 
-        verdict = "ANOMALY" if is_anomaly else "SAFE"
+    # ------------------------------------------------------------------ public API
+    def predict_flow(self, flow_dict: dict) -> dict:
+        feats = pd.DataFrame([{k: flow_dict.get(k) for k in FLOW_FEATURE_NAMES}])
+        X, imputed = self._matrix(feats)
+        f = dict(zip(FLOW_FEATURE_NAMES, X[0]))
+        score = float(self.scores(feats)[0])
+        imputed_cols = [c for c in FLOW_FEATURE_NAMES if imputed.iloc[0][c]]
+        verdict, conf, signals = self._verdict(score, f, imputed_cols)
+        summary = flow_summary(f)
+        return {"input_type": "NETWORK_FLOW", "input": summary, "flow_summary": summary, "verdict": verdict,
+                "confidence": conf, "score": round(score, 4), "signals": signals}
 
-        return {
-            "input_type": "NETWORK_FLOW",
-            "input": f"{flow_dict.get('src_ip', '192.168.1.5')}:{flow_dict.get('src_port', 50000)} -> {flow_dict.get('dst_ip', '10.0.0.1')}:{dst_port}",
-            "verdict": verdict,
-            "confidence": round(anomaly_conf if verdict == "ANOMALY" else 1.0 - anomaly_conf, 3),
-            "signals": signals
-        }
+    def predict_csv(self, path: str) -> list:
+        raw = pd.read_csv(path, low_memory=False)
+        feats = cic_to_features(raw)
+        missing = [c for c in FLOW_FEATURE_NAMES if c not in feats]
+        if len(missing) > len(FLOW_FEATURE_NAMES) // 2:
+            raise ValueError(f"{path}: not a CICFlowMeter-style flow CSV (missing {', '.join(missing)})")
+        X, imputed = self._matrix(feats)
+        sc = self.scores(feats)
+        results = []
+        for i in range(len(X)):
+            f = dict(zip(FLOW_FEATURE_NAMES, X[i]))
+            imputed_cols = [c for c in FLOW_FEATURE_NAMES if imputed.iloc[i][c]]
+            verdict, conf, signals = self._verdict(float(sc[i]), f, imputed_cols)
+            summary = flow_summary(f)
+            r = {"row": i + 1, "input_type": "NETWORK_FLOW", "input": f"{os.path.basename(path)}#{i + 1}: {summary}",
+                 "flow_summary": summary, "verdict": verdict, "confidence": conf, "score": round(float(sc[i]), 4),
+                 "signals": signals}
+            if "label" in feats:
+                r["label"] = str(feats["label"].iloc[i])
+            results.append(r)
+        return results

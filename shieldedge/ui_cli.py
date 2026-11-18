@@ -216,13 +216,15 @@ def main():
     elif args.flows:
         results = net_det.predict_csv(args.flows)
         flagged = [r for r in results if r["verdict"] != "SAFE"]
-        print(f"\n{'Row':>5}  {'Verdict':<12} {'Conf':>6}  Flow")
+        has_truth = any("label" in r for r in results)
+        print(f"\n{'Row':>5}  {'Verdict':<12} {'Conf':>6}  {'Dataset label' if has_truth else '':<20}Flow")
         for r in results[: args.max_rows]:
-            print(f"{r['row']:>5}  {verdict_label(r['verdict']):<12} {r['confidence'] * 100:5.1f}%  {r['flow_summary']}")
+            truth = r.get("label", "")[:18]
+            print(f"{r['row']:>5}  {verdict_label(r['verdict']):<12} {r['confidence'] * 100:5.1f}%  {truth:<20}{r['flow_summary']}")
         if len(results) > args.max_rows:
             print(f"  ... {len(results) - args.max_rows} more rows")
         print(f"\n{len(flagged)} of {len(results)} flows flagged.")
-        for r in results:
+        for r in flagged:
             logger.log_alert("NETWORK_FLOW", r["input"], r["verdict"], r["confidence"])
         if flagged:
             worst = max(flagged, key=lambda r: r["confidence"])
