@@ -1,192 +1,201 @@
 # ShieldEdge: On-Device Threat, Phishing & Scam Detection
-### Bharat AI-SoC Student Challenge 2026–27 · Problem Statement 3 (PS3)
-**Theme:** Cybersecurity & Digital Safety  
-**Platform Target:** Arm Cortex-A Edge Devices / Linux x86_64 Reference Platform  
-**Team Repository:** [github.com/harmank18/shieldedge](https://github.com/harmank18/shieldedge)  
 
----
+**Bharat AI-SoC Student Challenge 2026–27 · Problem Statement 3: Cybersecurity & Digital Safety**
 
-## 📌 Project Overview
-
-ShieldEdge is a privacy-preserving, 100% on-device cybersecurity assistant designed to protect citizens from digital fraud, phishing, and network anomalies without sending any user data to the cloud.
-
-The system addresses three critical digital threat vectors prevalent in the Indian digital ecosystem:
-1. **Phishing URLs:** Fast lexical and structural URL analysis detecting deceptive banking, tax refund, and telecom domains.
-2. **SMS Scam & Smishing:** Detection of fake urgency, KYC block notices, and lottery scams via an optimized NLP classification pipeline.
-3. **Network Flow Anomalies:** Statistical outlier detection for anomalous outbound connections and potential C2/botnet beaconing.
-4. **On-Device Advisory Explainer:** A quantized **Llama 3.2 1B-Instruct** model deployed locally via Meta's **ExecuTorch** (C++ native runtime compiled with XNNPACK) that translates raw security signals into plain-language explanations and concrete remediation steps.
-
----
-
-## 🏗️ System Architecture: Two-Pipeline Decoupling
+ShieldEdge checks **links, SMS messages and network flows** for phishing, scams and intrusions **entirely on
+the device**. Nothing is sent to the cloud. When it finds a threat, **Llama 3.2 1B-Instruct runs locally
+through ExecuTorch** (INT4, XNNPACK) and explains the problem in plain language. A vetted playbook then tells
+the user what to do, with Indian reporting channels such as 1930, cybercrime.gov.in and Sanchar Saathi.
 
 ```
-+-------------------------------------------------------------------------------+
-|                         ShieldEdge On-Device System                           |
-|                                                                               |
-|   [Input: URL / SMS Message / Flow Telemetry]                                 |
-|                       │                                                       |
-|                       ▼                                                       |
-|   [DETECTION PIPELINE: Fast & Deterministic ML (<1 ms)]                       |
-|   ├── URL Classifier: Random Forest (13 lexical/structural features)          |
-|   ├── SMS Classifier: TF-IDF + Calibrated LinearSVC                           |
-|   └── Network Detector: Isolation Forest on Flow Vectors                      |
-|                       │                                                       |
-|                       ▼                                                       |
-|   [DECISION ENGINE: Strict Thresholds & Prompt Injection Guard]               |
-|   ├── SAFE ──────────────────────────────► Fast Return (Zero LLM overhead)   |
-|   └── SUSPICIOUS / THREAT                                                     |
-|                       │ (Sanitized Evidence Summary)                          |
-|                       ▼                                                       |
-|   [ADVISORY PIPELINE: On-Device ExecuTorch LLM]                               |
-|   ├── Model: Llama 3.2 1B-Instruct (.pte flatbuffer, 2.4 GB)                  |
-|   ├── Backend: ExecuTorch v1.6.0 with XNNPACK CPU Acceleration                |
-|   └── Prompt Guardrails: Rigid Llama 3 chat template + input length capping   |
-|                       │                                                       |
-|                       ▼                                                       |
-|   [OUTPUT & LOCAL AUDIT]                                                      |
-|   ├── Actionable Citizen Advice (CERT-In 1930 / DoT 1909 reporting)           |
-|   └── Local SQLite Alert Database (Zero Cloud Transmissions)                  |
-+-------------------------------------------------------------------------------+
+ URL / SMS / flow CSV / QR image
+            │
+            ▼
+ ┌─────────────────────────── DETECTION  (deterministic, 3–13 ms) ──────────────────────────┐
+ │ URL : char 3-5-gram LR  +  22 structural features → gradient boosting; official-domain   │
+ │       allowlist, brand-misuse and free-hosting rules                                     │
+ │ SMS : TF-IDF + calibrated LinearSVC; link checks, transactional-format and Hinglish rules│
+ │ Flow: Isolation Forest on 18 CICFlowMeter statistics (trained on benign traffic only)    │
+ └──────────────────────────────────────────┬───────────────────────────────────────────────┘
+                                            ▼
+ DECISION ENGINE ─ SAFE → done (no LLM).  Otherwise: build *sanitised* evidence
+                   (verdict, confidence, hostname/flow summary, signals; never raw SMS text)
+                                            ▼
+ ADVISORY ─ Llama 3.2 1B-Instruct, INT4 .pte, ExecuTorch llama_main + XNNPACK (Arm CPU)
+            writes 2–3 sentences → validator (no invented links/numbers, no verdict
+            contradiction) → else template.  Remediation always from the vetted playbook.
+                                            ▼
+ OUTPUT ─ verdict + explanation + steps;  local SQLite log stores SHA-256 hashes only
 ```
+
+**Llama never decides the verdict.** It only explains. If the runner is missing, slow or produces bad
+output, the user still gets the verdict and a template explanation.
 
 ---
 
-## 📊 Measured Model Performance
+## Results (all numbers measured and reproducible)
 
-All models are evaluated on held-out test splits from real benchmark datasets:
+Measured on the development laptop (**Intel Core i5-1235U, x86_64, 15 GB RAM, Ubuntu 24.04**). Raspberry
+Pi 5 measurements will be added under `results/raspberry-pi-5/` (see [docs/PI_DEPLOYMENT.md](docs/PI_DEPLOYMENT.md)).
+Source: [`results/benchmarks.md`](results/benchmarks.md), generated by `models/evaluate_models.py`.
 
-| Modality | Architecture | Dataset | Test Samples | Accuracy | Precision | Recall | F1-Score | FPR | ROC-AUC | Latency / Sample |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **URL Phishing (v2.1)** | Soft-Voting Ensemble (RF + HGB) | Mitake PhishBenign (Held-out) | 5,992 | **83.49%** | **95.42%** | **70.32%** | **80.97%** | **3.37%** | **0.9419** | 0.016 ms |
-| **SMS Scam (v2.1)** | TF-IDF (1,3 + Sublinear) + Calib LinearSVC | UCI SMS Spam + Curated Indian Scams | 1,121 | **98.48%** | **97.26%** | **91.61%** | **94.35%** | **0.41%** | **0.9877** | 0.029 ms |
-| **Network Anomaly** | Isolation Forest (`contam=0.03`) | CICIDS-2017 (Monday + Friday Attacks) | 4,000 | **98.58%** | **97.46%** | **99.70%** | **98.57%** | **2.60%** | **0.9796** | 0.007 ms |
+### Detection quality (held-out data, deployed decision path, positive = any warning)
 
-### On-Device ExecuTorch Llama 3.2 1B-Instruct Telemetry
+| Task | Test set | Samples (threats) | Precision | Recall | F1 | FPR | ROC-AUC |
+|---|---|---|---|---|---|---|---|
+| URL phishing | Mitake held-out, **unseen domains** | 40,548 (13,614) | 96.7% | 89.6% | 0.930 | 1.5% | 0.989 |
+| URL phishing | India challenge set (curated) | 65 (30) | 96.8% | 100% | 0.984 | 2.9% | 1.000 |
+| SMS scam | UCI SMS Spam held-out, deduplicated | 1,034 (131) | 93.0% | 91.6% | 0.923 | 1.0% | 0.992 |
+| SMS scam | India SMS test set (team-authored) | 60 (30) | 93.8% | 100% | 0.968 | 6.7% | 0.996 |
+| Network anomaly | CIC-IDS-2017 **Friday** (trained on Monday benign) | 32,736 (12,736) | 95.9% | 62.9% | 0.759 | 1.7% | 0.970 |
 
-- **Test Machine:** Dell Inspiron 15 3520 (Intel Core x86_64, 15GB RAM, Ubuntu 24.04 LTS)
-- **Model Load Time:** 41 ms (fast mmap flatbuffer loading)
-- **Prefill Throughput:** ~1.98 tokens / second
-- **Decode Throughput:** ~1.36 tokens / second
-- **RAM Footprint:** ~1.6 - 2.5 GB peak RSS during inference
-- **Cloud Dependency:** **0.0% (Zero)**
+Network detection rate by attack type: **PortScan 99.9%, Botnet (attempted) 100%, Botnet C2 1.5%, DDoS 0%**.
+Individual DDoS and established botnet flows look like normal web traffic, so catching them needs time-window
+aggregation across flows (Phase 2). The India sets are small and partly team-authored, so treat them as sanity checks.
 
----
+### Why these numbers are lower than in earlier versions of this repo
+Earlier versions reported numbers that were inflated by data leakage. We fixed the evaluation:
+- **URL:** we now split by registered domain. With a random split, 52% of test URLs shared a website with
+  training data.
+- **SMS:** 403 duplicate messages are removed before the split.
+- **Network:** benign test traffic now comes from a different day than training.
 
-## 📁 Repository Structure
+### On-device Llama (ExecuTorch, 10 runs, mean ± std) — laptop
 
-```
-shieldedge/
-├── shieldedge.py                 # Root CLI entry point
-├── requirements.txt              # Python package requirements
-├── setup.sh                      # Setup script
-│
-├── shieldedge/                   # Core application package
-│   ├── __init__.py
-│   ├── url_detector.py           # 22-feature lexical URL extraction & RF predictor
-│   ├── sms_detector.py           # Multilingual (English + Hindi/Hinglish) SMS detector
-│   ├── network_detector.py       # Flow feature extractor & Isolation Forest
-│   ├── qr_scanner.py             # Computer vision QR threat decoder & pipeline
-│   ├── api_server.py             # Local REST API service (JSON endpoints)
-│   ├── dashboard.py              # Visual terminal threat dashboard (Rich)
-│   ├── decision_engine.py        # Threat calibration & injection guardrail
-│   ├── prompt_constructor.py     # Llama 3 chat template formatter
-│   ├── llama_runner.py           # Native ExecuTorch binary bridge & template fallback
-│   ├── storage.py                # Local SQLite privacy-safe audit logger
-│   └── ui_cli.py                 # Unified terminal UI & telemetry renderer
-│
-├── executorch/                   # Compiled ExecuTorch binaries & model
-│   ├── llama_main                # Compiled ExecuTorch C++ LLM runner binary (9.2 MB)
-│   ├── libllama_runner.so        # Shared runner library (4.7 MB)
-│   ├── llama3_2_1b.pte           # Exported Llama 3.2 1B-Instruct program (2.4 GB)
-│   └── export_llama.sh           # Reproducible model export script
-│
-├── models/                       # Training & evaluation scripts
-│   ├── train_url_classifier.py   # Trains URL Random Forest
-│   ├── train_sms_classifier.py   # Trains SMS LinearSVC pipeline
-│   ├── train_network_detector.py # Trains Network Isolation Forest on CICIDS-2017
-│   └── evaluate_models.py        # Generates quantitative benchmark report
-│
-├── data/
-│   ├── download_datasets.py      # Dataset loader for benchmark data
-│   └── raw/                      # Raw dataset CSV files
-│
-├── tests/
-│   └── test_prompt_injection.py  # Security tests verifying prompt injection defense
-│
-├── results/
-│   └── benchmarks.md             # Full benchmark report and metrics
-│
-├── demo/
-│   └── demo_script.md            # Step-by-step verification and demo commands
-│
-└── docs/
-    └── PROJECT_BRIEF.md          # Competition task specification & requirements
-```
+| Program | Size | Load | Time to first token | Prefill | Decode | Full explanation | Peak RAM |
+|---|---|---|---|---|---|---|---|
+| `llama3_2_1b_int4.pte` (8da4w, g128, 4-bit embeddings) | 765 MB | 1.89 ± 0.10 s | 3.04 ± 0.13 s | 112 ± 2 tok/s | 31.2 ± 0.6 tok/s | 5.5 ± 0.3 s | 1.08 GB |
+
+The earlier **bf16** export (2.4 GB) ran at about 1.9 tok/s prefill and 1.3 tok/s decode on the same laptop. It needed
+about 128 s for a reply that was cut off at 49 tokens. Explanation quality on 19 real detector outputs, including
+3 prompt-injection attempts: **100% passed validation, 100% grounded in the supplied signals, 0 raw-input leaks**
+(`results/prompt_eval_*.json`).
+
+Detection latency per input: URL 4.4 ms, SMS 2.7 ms, network flow 13 ms. Model files total 5 MB.
 
 ---
 
-## 🚀 Quickstart & Usage
-
-### 1. Environment Setup
+## Quick start
 
 ```bash
-git clone https://github.com/harmank18/shieldedge.git
-cd shieldedge
-python3 -m venv venv
+git clone -b harman-devs https://github.com/harmank18/shieldedge.git && cd shieldedge
+./setup.sh                      # venv + requirements (QR scanning also needs: sudo apt install libzbar0)
 source venv/bin/activate
-pip install -r requirements.txt
 ```
 
-### 2. Run Threat Detection (CLI)
+The trained detector models are in the repo. For the Llama step you also need `executorch/llama_main` and
+`executorch/llama3_2_1b_int4.pte` (from `executorch/export_llama.sh`, see below). Without them, ShieldEdge
+automatically uses the template explanation.
 
 ```bash
-# Analyze a suspicious banking link (full ExecuTorch on-device Llama advisory)
-python3 shieldedge.py --url "http://sbi-net-banking-update.xyz/login"
+python shieldedge.py --url "http://sbi-net-banking-update.xyz/login"          # streams the Llama explanation
+python shieldedge.py --url "https://netbanking.hdfcbank.com/netbanking/"      # official domain → SAFE
+python shieldedge.py --sms "Aapka SBI khata band ho jayega. Turant KYC update karo: http://sbi-kyc-help.xyz"
+python shieldedge.py --sms "Rs.2,500.00 debited from A/c XX4521 to VPA zomato@icici. Not you? Call 18002586161 -HDFC Bank"
+python shieldedge.py --flows data/samples/demo_flows.csv                      # 20 real CIC-IDS-2017 flows
+python shieldedge.py --qr path/to/qr.png                                      # decode QR, analyse its URL
+python shieldedge.py --url "..." --fast                                       # skip Llama (template only)
 
-# Instant mode (<15ms) using deterministic rule explainer instead of LLM
-python3 shieldedge.py --url "http://sbi-net-banking-update.xyz/login" --fast
-
-# Analyze an incoming SMS scam message
-python3 shieldedge.py --sms "Dear customer, your State Bank account will be blocked. Update KYC at http://sbi-verify.xyz" --fast
-
-# Analyze a network flow (port, byte_rate, pkt_rate)
-python3 shieldedge.py --flow 4444 2000000 600
-
-# Scan a physical or digital QR code image for phishing links
-python3 shieldedge.py --qr /path/to/qr_image.png
-
-# Launch interactive visual threat dashboard
-python3 shieldedge.py --dashboard
-
-# Start local privacy-preserving REST API service
-python3 shieldedge.py --serve --port 5050
-
-# View local security audit log
-python3 shieldedge.py --alerts
+python shieldedge.py --alerts            # local audit log (hashes only)
+python shieldedge.py --mark-safe 12      # report alert #12 as a false positive
+python shieldedge.py --clear-logs        # delete all stored alerts
+python shieldedge.py --dashboard         # terminal dashboard
+python shieldedge.py --serve             # REST API on 127.0.0.1:5050 (local only)
+python shieldedge.py --benchmark         # detector latency on this device
 ```
 
-### 3. Run Security & Model Tests
+### Reproduce everything
 
 ```bash
-# Prompt injection containment verification
-python3 tests/test_prompt_injection.py
-
-# Quantitative evaluation across all test sets
-python3 models/evaluate_models.py
+python data/download_datasets.py           # Mitake URLs, UCI SMS, CIC-IDS-2017 (public datasets)
+python models/train_url_classifier.py      # ~4 min on the laptop
+python models/train_sms_classifier.py
+python data/build_network_dataset.py && python models/train_network_detector.py
+python models/evaluate_models.py           # → results/evaluation_results.csv, results/benchmarks.md
+python scripts/benchmark_llm.py            # → results/llm_benchmark_<device>_<program>.json/.md
+python scripts/prompt_eval.py              # → results/prompt_eval_<device>.json
+pytest                                     # 36 tests
 ```
+
+### Export Llama 3.2 1B-Instruct to ExecuTorch
+
+Accept the Meta Llama 3.2 licence and place the original checkpoint in `models/Llama-3.2-1B-Instruct/original/`. Then run:
+
+```bash
+EXECUTORCH_DIR=~/executorch ./executorch/export_llama.sh        # INT4 8da4w + XNNPACK → executorch/llama3_2_1b_int4.pte
+QUANT=bf16 EXECUTORCH_DIR=~/executorch ./executorch/export_llama.sh   # optional bf16 baseline
+```
+
+Build `llama_main` with `make llama-cpu` in the ExecuTorch v1.6.0 tree, and copy it and `libllama_runner.so` into
+`executorch/`. On a Raspberry Pi, `scripts/setup_pi.sh` does this for you.
 
 ---
 
-## 🛡️ Privacy & Legal Disclosures
+## Repository layout
 
-1. **Air-Gapped & Offline Guarantee:** ShieldEdge makes zero network API calls during inference. All machine learning models and LLM runtimes execute strictly locally on the host CPU.
-2. **Local Data Minimization:** Analysis logs are written only to a local SQLite database (`shieldedge_alerts.db`). No telemetry or private user communications leave the device.
-3. **Network Telemetry Notice:** Phase 1 uses exported network flow metadata (packet rates, byte rates, destination ports) rather than promiscuous live packet capture to comply with host operating system privacy boundaries.
+```
+shieldedge.py                 CLI entry point
+shieldedge/
+  url_detector.py             URL normalisation, 22 features, allowlist/brand rules, stacked model
+  sms_detector.py             SMS model + link / transactional / Hinglish rules
+  network_detector.py         CICFlowMeter CSV mapping, Isolation Forest, flow rules
+  decision_engine.py          sanitised evidence, advisory trigger, uncertainty caveat
+  prompt_constructor.py       Llama 3 chat prompt (evidence fenced as data, one fixed example)
+  llama_runner.py             ExecuTorch llama_main bridge, streaming, output validation, fallback
+  advisory_playbook.py        vetted remediation steps and template explanations
+  sanitize.py, storage.py     input sanitising; hash-only SQLite log (mark safe / clear)
+  qr_scanner.py, dashboard.py, api_server.py, device.py, ui_cli.py
+models/                       train_*.py, evaluate_models.py, trained .joblib models (5 MB)
+data/                         download_datasets.py, build_network_dataset.py, curated/ (India sets), samples/
+executorch/                   export_llama.sh (+ llama_main, .pte - not in git)
+scripts/                      benchmark_llm.py, prompt_eval.py, setup_pi.sh, copy_to_pi.sh,
+                              benchmark_device.sh, offline_proof.sh
+results/                      generated metrics and benchmarks (labelled by device)
+docs/                         technical_report.md, PI_DEPLOYMENT.md, PROJECT_BRIEF.md
+demo/demo_script.md           5-minute demo storyboard
+tests/                        pytest suite
+```
 
----
+## Data sources
 
-## 👥 Team & Mentor
+| Data | Use | Notes |
+|---|---|---|
+| [Mitake/PhishingURLsANDBenignURLs](https://huggingface.co/datasets/Mitake/PhishingURLsANDBenignURLs) | URL train/val/test | 225k sampled (2:1 benign:phishing), deduplicated, split by registered domain |
+| [UCI SMS Spam Collection](https://archive.ics.uci.edu/dataset/228/sms+spam+collection) | SMS train/test | deduplicated before a stratified 80/20 split |
+| [CIC-IDS-2017](https://www.unb.ca/cic/datasets/ids-2017.html) via [bvk/CICIDS-2017](https://huggingface.co/datasets/bvk/CICIDS-2017) | network | Monday benign for training and thresholds, Friday for testing |
+| `data/curated/` | India-specific | **Team-authored** SMS (separate train/test files) and a URL challenge set whose phishing rows are **synthetic**. See [data/curated/README.md](data/curated/README.md) |
 
-- **Developer:** Harman Singh ([harmank18](https://github.com/harmank18))
-- **Challenge Track:** Bharat AI-SoC Student Challenge 2026–27 (Problem Statement 3: Cybersecurity & Digital Safety)
+## Limitations
+
+- **URL:** lexical analysis only (no WHOIS, page content or blocklist, by design for offline use). Phishing on
+  reputable shared platforms and brand-new lookalike domains with clean structure can be missed. The official-domain
+  allowlist covers about 45 brands and government sites and needs maintenance.
+- **SMS:** UCI is English (2011, UK). Indian and Hinglish coverage comes from a small team-authored set, and
+  regional-language scripts beyond keyword hints are not modelled. Two of the 30 genuine messages in the India test
+  set (an OTP format and a delivery notice) are wrongly flagged.
+- **Network:** per-flow analysis of pre-captured CICFlowMeter CSVs only, with no live capture in Phase 1. DDoS and
+  established botnet C2 traffic are not detected without cross-flow aggregation.
+- **Llama:** a 1B model's explanations are sometimes generic. The validator blocks invented contacts and links but
+  cannot judge every phrasing. Remediation advice is therefore never generated by the model.
+- **Benchmarks:** all current numbers are from the x86 laptop. Raspberry Pi 5 numbers are pending.
+
+## Privacy, safety and legal notes
+
+- **Offline:** no network calls during analysis. `scripts/offline_proof.sh` records a tcpdump capture during
+  inference with the network disconnected.
+- **Data minimisation:** the SQLite log stores a SHA-256 hash of each input, the verdict, the confidence and user
+  feedback, never the SMS or URL text. `--clear-logs` deletes everything. The REST API listens on 127.0.0.1 only.
+- **Advisory only:** ShieldEdge warns and never blocks. The user decides.
+- **Network capture warning:** capturing traffic on networks you do not own or have written permission to monitor
+  may be an offence under the **Information Technology Act, 2000 (Section 66 and related provisions)**. Only
+  analyse traffic from your own network or the public CIC-IDS-2017 dataset.
+
+## Team
+
+| | |
+|---|---|
+| Team members | **Harman Kishnadwala** ([@harmank18](https://github.com/harmank18)), **Arnav Mohan Jabade**, **Aishan Prabahakar Nikam** |
+| Faculty mentor | **Prof. Akshay Madan** |
+| Institution | BITS Pilani, K K Birla Goa Campus |
+
+Llama 3.2 is licensed under the Llama 3.2 Community License. ExecuTorch is BSD-licensed.
