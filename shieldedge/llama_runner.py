@@ -19,6 +19,7 @@ import tempfile
 import time
 
 from shieldedge.advisory_playbook import format_advisory, remediation_steps, template_explanation
+from shieldedge.url_detector import OFFICIAL_DOMAINS
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ET_DIR = os.path.join(BASE_DIR, "executorch")
@@ -40,6 +41,9 @@ TIMEOUT_S = int(os.environ.get("SHIELDEDGE_LLM_TIMEOUT", "120"))
 _URL_RE = re.compile(r"https?://|www\.|\b[a-z0-9-]+\.(com|in|xyz|top|net|org|info)\b", re.I)
 _PHONE_RE = re.compile(r"\b\d{6,}\b")
 _EMAIL_RE = re.compile(r"\S+@\S+\.\S+")
+# Organisations the model must not bring up unless the evidence mentions them.
+_ORG_RE = re.compile(r"\b(" + "|".join(sorted({b for b in OFFICIAL_DOMAINS if len(b) >= 3}, key=len, reverse=True))
+                     + r"|state bank|rbi|cbi|police)\b", re.I)
 _CONTRADICT_RE = re.compile(
     r"\b(is|looks|appears|seems)\s+(completely\s+|totally\s+|perfectly\s+)?(safe|legitimate|genuine|harmless)\b", re.I
 )
@@ -80,6 +84,11 @@ def validate_explanation(text: str, evidence: dict) -> list:
     for m in _URL_RE.finditer(text):
         if m.group(0).lower() not in supplied:
             problems.append("mentions a link/domain not supplied by the detector")
+            break
+    for m in _ORG_RE.finditer(lowered):
+        org = m.group(1).lower()
+        if org not in supplied and not (org == "state bank" and "sbi" in supplied):
+            problems.append(f"mentions '{org}', which is not in the evidence")
             break
     if evidence.get("verdict") != "SAFE":
         for m in _CONTRADICT_RE.finditer(lowered):
