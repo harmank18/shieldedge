@@ -18,8 +18,7 @@ Usage:
 
 import os
 import time
-import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 try:
     from flask import Flask, request, jsonify, abort
@@ -103,8 +102,7 @@ def _run_pipeline(raw_result: dict, input_type_key: str, explain: bool = False) 
     remediation_text = ""
     if explain and eval_res.get("requires_advisory"):
         from shieldedge.llama_runner import LlamaAdvisoryRunner
-        runner = LlamaAdvisoryRunner()
-        remediation_text = runner._generate_template_advisory(eval_res)
+        remediation_text = LlamaAdvisoryRunner().template_advisory(eval_res)["advisory"]
 
     logger.log_alert(
         input_type=eval_res["input_type"],
@@ -123,7 +121,7 @@ def _run_pipeline(raw_result: dict, input_type_key: str, explain: bool = False) 
         "signals": eval_res.get("signals", []),
         "summary": eval_res.get("input_summary", ""),
         "latency_ms": latency_ms,
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     if explain:
         res["advisory"] = remediation_text
@@ -141,12 +139,12 @@ def health():
         "status": "ok",
         "uptime_seconds": round(time.time() - _start_time, 1),
         "models": {
-            "url_rf": os.path.exists(URL_MODEL),
+            "url_model": os.path.exists(URL_MODEL),
             "sms_pipeline": os.path.exists(SMS_MODEL),
             "network_iforest": os.path.exists(NET_MODEL),
         },
-        "version": "2.0.0",
-        "engine": "ShieldEdge On-Device (ExecuTorch Llama 3.2 1B)"
+        "version": "3.0.0",
+        "advisory": "template playbook (use the CLI for streamed Llama explanations)"
     })
 
 
@@ -163,7 +161,10 @@ def analyze_url():
     if len(url) > 2048:
         abort(400, description="URL too long (max 2048 chars)")
 
-    raw = _get_url_det().predict(url)
+    try:
+        raw = _get_url_det().predict(url)
+    except Exception:
+        abort(400, description="Could not parse URL")
     response = _run_pipeline(raw, "url", explain=bool(data.get("explain", False)))
     response["features"] = raw.get("features", {})
     return jsonify(response)
@@ -269,7 +270,7 @@ def not_found(e):
 
 @app.errorhandler(500)
 def server_error(e):
-    return jsonify({"error": "Internal Server Error", "message": str(e)}), 500
+    return jsonify({"error": "Internal Server Error"}), 500
 
 
 def create_app():
@@ -281,4 +282,5 @@ if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 5050
     print(f"[ShieldEdge API] Starting on http://localhost:{port}")
     print(f"[ShieldEdge API] Endpoints: /health, /analyze/url, /analyze/sms, /analyze/flow, /alerts, /stats")
-    app.run(host="0.0.0.0", port=port, debug=False)
+    # Local-only by default: bind to loopback so other devices cannot query it.
+    app.run(host="127.0.0.1", port=port, debug=False)

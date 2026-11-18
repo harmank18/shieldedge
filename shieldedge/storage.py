@@ -46,9 +46,31 @@ class AlertLogger:
             VALUES (?, ?, ?, ?, ?)
             """, (input_type, inp_hash, verdict, confidence, remediation))
             conn.commit()
+            return cursor.lastrowid
 
     def get_recent_alerts(self, limit: int = 10):
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT id, timestamp, input_type, verdict, confidence FROM alerts ORDER BY id DESC LIMIT ?", (limit,))
+            cursor.execute("SELECT id, timestamp, input_type, verdict, confidence, is_false_positive FROM alerts ORDER BY id DESC LIMIT ?", (limit,))
             return cursor.fetchall()
+
+    def mark_false_positive(self, alert_id: int) -> bool:
+        """User feedback: mark an alert as a false positive ("Report as safe")."""
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute("UPDATE alerts SET is_false_positive = 1 WHERE id = ?", (alert_id,))
+            conn.commit()
+            return cur.rowcount == 1
+
+    def clear(self) -> int:
+        """Delete every stored alert (privacy: clear-all-logs). Returns rows removed."""
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute("DELETE FROM alerts")
+            conn.commit()
+            return cur.rowcount
+
+    def feedback_stats(self) -> dict:
+        with sqlite3.connect(self.db_path) as conn:
+            total, fps = conn.execute(
+                "SELECT COUNT(*), COALESCE(SUM(is_false_positive), 0) FROM alerts WHERE verdict != 'SAFE'"
+            ).fetchone()
+        return {"flagged": total, "marked_safe_by_user": fps}

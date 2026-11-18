@@ -1,216 +1,242 @@
 """
-Unified Command-Line Interface (CLI) for ShieldEdge.
-Runs URL, SMS, and Network threat analysis, profiles latency & RAM,
-and interfaces with the Decision Engine and Advisory Runner.
+Unified command-line interface for ShieldEdge.
+
+Detection (URL / SMS / network flow / QR) -> decision engine -> on-device
+Llama explanation (ExecuTorch) + vetted remediation playbook -> local,
+hash-only SQLite audit log.
 """
 
+import argparse
 import os
+import platform
+import statistics
 import sys
 import time
-import argparse
+
 import psutil
 
-from shieldedge.url_detector import URLDetector
-from shieldedge.sms_detector import SMSDetector
-from shieldedge.network_detector import NetworkDetector
 from shieldedge.decision_engine import DecisionEngine
-from shieldedge.prompt_constructor import construct_prompt
 from shieldedge.llama_runner import LlamaAdvisoryRunner
+from shieldedge.network_detector import NetworkDetector
+from shieldedge.prompt_constructor import construct_prompt
+from shieldedge.sms_detector import SMSDetector
 from shieldedge.storage import AlertLogger
+from shieldedge.url_detector import URLDetector
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 URL_MODEL_PATH = os.path.join(BASE_DIR, "models", "url_rf_model.joblib")
 SMS_MODEL_PATH = os.path.join(BASE_DIR, "models", "sms_pipeline.joblib")
 NET_MODEL_PATH = os.path.join(BASE_DIR, "models", "network_isolation_forest.joblib")
 
+RED, YELLOW, GREEN, DIM, BOLD, RESET = "\033[91m", "\033[93m", "\033[92m", "\033[2m", "\033[1m", "\033[0m"
+if not sys.stdout.isatty() or os.environ.get("NO_COLOR"):
+    RED = YELLOW = GREEN = DIM = BOLD = RESET = ""
 
-def print_banner():
-    banner = r"""
-  ____  _     _      _     _ _____    _             
- / ___|| |__ (_) ___| | __| | ____|__| | __ _  ___ 
+BANNER = r"""
+  ____  _     _      _     _ _____    _
+ / ___|| |__ (_) ___| | __| | ____|__| | __ _  ___
  \___ \| '_ \| |/ _ \ |/ _` |  _| / _` |/ _` |/ _ \
   ___) | | | | |  __/ | (_| | |__| (_| | (_| |  __/
  |____/|_| |_|_|\___|_|\__,_|_____\__,_|\__, |\___|
-                                        |___/      
- [PS3: On-Device Threat, Phishing & Scam Detection]
-    """
-    print(banner)
+                                        |___/
+ On-device threat, phishing & scam detection  |  PS3, Bharat AI-SoC Challenge
+"""
 
 
-def run_pipeline(detection_result: dict, decision_engine: DecisionEngine, advisory_runner: LlamaAdvisoryRunner, logger: AlertLogger, fast_mode: bool = False):
-    t0 = time.perf_counter()
-    eval_res = decision_engine.evaluate(detection_result)
-    
-    verdict = eval_res["verdict"]
-    conf = eval_res["confidence"]
-    signals = eval_res["signals"]
+def device_name() -> str:
+    try:
+        with open("/proc/device-tree/model") as f:
+            return f.read().strip("\x00\n ")
+    except OSError:
+        pass
+    try:
+        with open("/proc/cpuinfo") as f:
+            for line in f:
+                if line.startswith("model name"):
+                    return line.split(":", 1)[1].strip()
+    except OSError:
+        pass
+    return platform.processor() or platform.machine()
 
-    # Color highlights
+
+def verdict_label(verdict: str) -> str:
     if verdict in {"PHISHING", "SCAM", "ANOMALY"}:
-        status_color = f"\033[91m[!] {verdict} DETECTED\033[0m"
-    elif verdict == "SUSPICIOUS":
-        status_color = f"\033[93m[?] {verdict}\033[0m"
-    else:
-        status_color = f"\033[92m[✓] {verdict}\033[0m"
+        return f"{RED}{BOLD}[!] {verdict}{RESET}"
+    if verdict == "SUSPICIOUS":
+        return f"{YELLOW}{BOLD}[?] {verdict}{RESET}"
+    return f"{GREEN}{BOLD}[OK] {verdict}{RESET}"
 
-    print("\n" + "="*60)
-    print(f"VERDICT:       {status_color}")
-    print(f"CONFIDENCE:    {conf * 100:.1f}%")
-    print(f"INPUT TYPE:    {eval_res['input_type']}")
-    print(f"SUMMARY:       {eval_res['input_summary']}")
-    
-    if signals:
-        print("\nIDENTIFIED SIGNALS:")
-        for s in signals:
-            print(f"  • {s}")
-    print("="*60)
+
+def run_pipeline(detection_result, engine, runner, logger, use_llm=True, quiet=False):
+    t0 = time.perf_counter()
+    ev = engine.evaluate(detection_result)
+    t_detect = (time.perf_counter() - t0) * 1000
+
+    print("\n" + "=" * 64)
+    print(f"VERDICT:     {verdict_label(ev['verdict'])}")
+    print(f"CONFIDENCE:  {ev['confidence'] * 100:.1f}%")
+    print(f"INPUT:       {ev['input_type']}  {DIM}{ev['input_summary']}{RESET}")
+    if ev["signals"]:
+        print("\nSIGNALS:")
+        for s in ev["signals"]:
+            print(f"  - {s}")
+    print("=" * 64)
 
     advisory_text = ""
-    if eval_res["requires_advisory"]:
-        if fast_mode:
-            print("\n[AI Advisory & Explainer (Fast Deterministic Mode)]")
-            adv_res = {
-                "source": "ShieldEdge Deterministic Advisory Engine",
-                "advisory": advisory_runner._generate_template_advisory(eval_res)
-            }
-            print(f"Engine: {adv_res['source']}\n")
-            advisory_text = adv_res["advisory"]
-            print(advisory_text)
-            print("="*60)
+    if ev["requires_advisory"] and not quiet:
+        if use_llm and runner.has_executorch:
+            print(f"\n{BOLD}Explanation{RESET} {DIM}(Llama 3.2 1B on-device via ExecuTorch, {runner.model_name}){RESET}")
+            adv = runner.generate_advisory(ev, construct_prompt(ev), stream=lambda s: print(s, end="", flush=True))
+            print()
+            if not adv["source"].startswith("Llama"):
+                print(f"{YELLOW}[fallback] {adv['source']}{RESET}")
+                print(adv["explanation"])
         else:
-            print("\n[AI Advisory & Explainer (Running on-device Llama 3.2 via ExecuTorch...)]")
-            prompt = construct_prompt(eval_res)
-            adv_res = advisory_runner.generate_advisory(eval_res, prompt)
-            print(f"Engine: {adv_res['source']}\n")
-            advisory_text = adv_res["advisory"]
-            print(advisory_text)
-            if adv_res.get("metrics"):
-                m = adv_res["metrics"]
-                ttft = m.get('first_token_ms', 0) - m.get('inference_start_ms', 0)
-                print(f"\n[ExecuTorch Model Telemetry]")
-                print(f"  • Time to First Token (TTFT): {ttft} ms")
-                print(f"  • Prefill Speed:              {m.get('prefill_token_per_sec', 0):.2f} tokens/sec")
-                print(f"  • Decode Speed:               {m.get('decode_token_per_sec', 0):.2f} tokens/sec")
-                print(f"  • Total Tokens:               {m.get('prompt_tokens', 0)} prompt + {m.get('generated_tokens', 0)} generated")
-            print("="*60)
+            if use_llm:
+                print(f"{DIM}(ExecuTorch model/runner not found - using template explanation){RESET}")
+            adv = runner.template_advisory(ev)
+            print(f"\n{BOLD}Explanation{RESET} {DIM}({adv['source']}){RESET}")
+            print(adv["explanation"])
 
-    # Log to SQLite
-    logger.log_alert(
-        input_type=eval_res["input_type"],
-        raw_input=detection_result.get("input", ""),
-        verdict=verdict,
-        confidence=conf,
-        remediation=advisory_text
-    )
+        print(f"\n{BOLD}What to do{RESET} {DIM}(vetted ShieldEdge playbook){RESET}")
+        for i, step in enumerate(adv["remediation"], 1):
+            print(f"  {i}. {step}")
+        print(f"\n{DIM}Note: {ev['caveat']}{RESET}")
+        advisory_text = adv["advisory"]
 
-    t1 = time.perf_counter()
-    mem_mb = psutil.Process().memory_info().rss / (1024 * 1024)
-    print(f"\nExecution Telemetry: Latency = {(t1 - t0)*1000:.2f} ms | Process RSS = {mem_mb:.2f} MB")
+        m = adv.get("metrics")
+        if m:
+            print(f"\n{DIM}[ExecuTorch] load {m['model_load_ms']} ms | TTFT {m['ttft_ms']} ms | "
+                  f"prefill {m['prefill_tok_s']:.1f} tok/s | decode {m['decode_tok_s']:.1f} tok/s | "
+                  f"{m['prompt_tokens']}+{m['generated_tokens']} tokens{RESET}")
+        print("=" * 64)
+
+    alert_id = logger.log_alert(ev["input_type"], str(detection_result.get("input", "")),
+                                ev["verdict"], ev["confidence"], advisory_text)
+    rss = psutil.Process().memory_info().rss / 2**20
+    print(f"{DIM}Detection latency {t_detect:.2f} ms | Python RSS {rss:.0f} MB | alert #{alert_id} "
+          f"(mark as safe: --mark-safe {alert_id}){RESET}")
+    return ev
+
+
+def run_benchmark(url_det, sms_det, net_det, n=200):
+    cases = {
+        "URL": (url_det.predict, "http://sbi-net-banking-update.xyz/login"),
+        "SMS": (sms_det.predict, "Your SBI account is blocked. Update KYC immediately at http://sbi-kyc.top"),
+        "Network": (net_det.predict_flow, {"dst_port": 4444, "byte_rate": 2_000_000, "packet_rate": 800}),
+    }
+    print(f"\nDetection latency benchmark on: {device_name()} ({platform.machine()})")
+    print(f"{n} timed calls per detector after 10 warm-up calls\n")
+    print(f"{'Detector':<10} {'mean ms':>9} {'std ms':>9} {'p95 ms':>9}")
+    for name, (fn, arg) in cases.items():
+        for _ in range(10):
+            fn(arg)
+        times = []
+        for _ in range(n):
+            t = time.perf_counter()
+            fn(arg)
+            times.append((time.perf_counter() - t) * 1000)
+        times.sort()
+        print(f"{name:<10} {statistics.mean(times):9.3f} {statistics.stdev(times):9.3f} {times[int(0.95 * n)]:9.3f}")
+    print(f"\nPython process RSS with all three detectors loaded: {psutil.Process().memory_info().rss / 2**20:.0f} MB")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="ShieldEdge: On-Device Threat Detection Assistant")
-    parser.add_argument("--url", type=str, help="Analyze URL string for phishing")
-    parser.add_argument("--sms", type=str, help="Analyze incoming SMS text for scam/smishing")
-    parser.add_argument("--flow", nargs=3, metavar=("DST_PORT", "BYTE_RATE", "PKT_RATE"),
-                        help="Analyze simulated flow: <port> <bytes/s> <pkts/s>")
-    parser.add_argument("--alerts", action="store_true", help="Display recent security alerts log")
-    parser.add_argument("--benchmark", action="store_true", help="Run 100-sample latency and memory benchmark")
-    parser.add_argument("--serve", action="store_true", help="Start REST API server on localhost:5050")
-    parser.add_argument("--port", type=int, default=5050, help="Port for REST API server (default: 5050)")
-    parser.add_argument("--qr", type=str, help="Scan a QR code image for malicious URLs")
-    parser.add_argument("--dashboard", action="store_true", help="Show threat intelligence dashboard")
-    parser.add_argument("--fast", action="store_true", help="Fast mode: use instant deterministic explainer (<5ms) instead of LLM")
+    p = argparse.ArgumentParser(description="ShieldEdge: on-device threat, phishing & scam detection")
+    g = p.add_argument_group("analysis")
+    g.add_argument("--url", help="analyse a URL for phishing")
+    g.add_argument("--sms", help="analyse SMS text for scam/smishing")
+    g.add_argument("--flows", metavar="CSV", help="analyse a pre-captured flow CSV (CICFlowMeter/CICIDS columns), one verdict per row")
+    g.add_argument("--flow", nargs=3, metavar=("DST_PORT", "BYTE_RATE", "PKT_RATE"),
+                   help="quick single-flow check from 3 numbers (other features unknown; prefer --flows)")
+    g.add_argument("--qr", help="decode a QR code image and analyse any URL in it")
+    g.add_argument("--fast", "--no-llm", dest="fast", action="store_true", help="skip Llama; use the template explanation")
+    g.add_argument("--max-rows", type=int, default=50, help="max rows printed for --flows (default 50)")
+    t = p.add_argument_group("tools")
+    t.add_argument("--alerts", action="store_true", help="show the recent local audit log")
+    t.add_argument("--mark-safe", type=int, metavar="ID", help="mark alert ID as a false positive")
+    t.add_argument("--clear-logs", action="store_true", help="delete all locally stored alerts")
+    t.add_argument("--benchmark", action="store_true", help="detector latency benchmark")
+    t.add_argument("--dashboard", action="store_true", help="terminal dashboard of the audit log")
+    t.add_argument("--serve", action="store_true", help="start the local REST API")
+    t.add_argument("--host", default="127.0.0.1", help="REST API bind address (default 127.0.0.1, local only)")
+    t.add_argument("--port", type=int, default=5050, help="REST API port (default 5050)")
+    args = p.parse_args()
 
-    args = parser.parse_args()
+    if len(sys.argv) == 1:
+        print(BANNER)
+        p.print_help()
+        return
+    print(BANNER)
 
-    print_banner()
+    logger = AlertLogger()
+    if args.alerts:
+        rows = logger.get_recent_alerts(15)
+        print(f"{'ID':<5} {'Time (UTC)':<20} {'Type':<13} {'Verdict':<11} {'Conf':>6}  Feedback")
+        for r in rows:
+            print(f"{r[0]:<5} {r[1]:<20} {r[2]:<13} {r[3]:<11} {r[4] * 100:5.1f}%  {'marked safe' if r[5] else ''}")
+        fb = logger.feedback_stats()
+        print(f"\nFlagged: {fb['flagged']} | marked safe by user: {fb['marked_safe_by_user']}")
+        print("Only SHA-256 hashes of inputs are stored - never the raw SMS/URL text.")
+        return
+    if args.mark_safe is not None:
+        ok = logger.mark_false_positive(args.mark_safe)
+        print(f"Alert #{args.mark_safe} marked as safe." if ok else f"No alert with id {args.mark_safe}.")
+        return
+    if args.clear_logs:
+        print(f"Deleted {logger.clear()} stored alerts.")
+        return
+    if args.dashboard:
+        from shieldedge.dashboard import show_dashboard
+        show_dashboard()
+        return
+    if args.serve:
+        from shieldedge.api_server import app
+        print(f"[ShieldEdge API] http://{args.host}:{args.port}  (POST /analyze/url|sms|flow, GET /alerts /stats /health)")
+        app.run(host=args.host, port=args.port, debug=False)
+        return
 
-    # Load modules
     url_det = URLDetector(URL_MODEL_PATH)
     sms_det = SMSDetector(SMS_MODEL_PATH)
     net_det = NetworkDetector(NET_MODEL_PATH)
     engine = DecisionEngine()
     runner = LlamaAdvisoryRunner()
-    logger = AlertLogger()
+    use_llm = not args.fast
 
-    if args.url:
-        res = url_det.predict(args.url)
-        run_pipeline(res, engine, runner, logger, fast_mode=args.fast)
+    if args.benchmark:
+        run_benchmark(url_det, sms_det, net_det)
+    elif args.url:
+        run_pipeline(url_det.predict(args.url), engine, runner, logger, use_llm)
     elif args.sms:
-        res = sms_det.predict(args.sms)
-        run_pipeline(res, engine, runner, logger, fast_mode=args.fast)
+        run_pipeline(sms_det.predict(args.sms), engine, runner, logger, use_llm)
     elif args.flow:
-        flow_dict = {
-            "dst_port": int(args.flow[0]),
-            "byte_rate": float(args.flow[1]),
-            "packet_rate": float(args.flow[2])
-        }
-        res = net_det.predict_flow(flow_dict)
-        run_pipeline(res, engine, runner, logger, fast_mode=args.fast)
-    elif args.alerts:
-        alerts = logger.get_recent_alerts(15)
-        print(f"\nRecent Security Audit Logs (Total: {len(alerts)}):")
-        print("-" * 65)
-        print(f"{'ID':<4} | {'Timestamp':<20} | {'Type':<12} | {'Verdict':<10} | {'Conf'}")
-        print("-" * 65)
-        for a in alerts:
-            print(f"{a[0]:<4} | {a[1]:<20} | {a[2]:<12} | {a[3]:<10} | {a[4]*100:.1f}%")
-        print("-" * 65)
-    elif args.benchmark:
-        print("\nRunning On-Device Telemetry Benchmarks (100 Iterations)...")
-        # URL
-        t0 = time.perf_counter()
-        for _ in range(100):
-            url_det.predict("http://sbi-net-banking-update.xyz/login")
-        t_url = (time.perf_counter() - t0) / 100 * 1000
-
-        # SMS
-        t0 = time.perf_counter()
-        for _ in range(100):
-            sms_det.predict("Your SBI account is blocked. Update KYC immediately.")
-        t_sms = (time.perf_counter() - t0) / 100 * 1000
-
-        # Network
-        t0 = time.perf_counter()
-        for _ in range(100):
-            net_det.predict_flow({"dst_port": 4444, "byte_rate": 2000000, "packet_rate": 800})
-        t_net = (time.perf_counter() - t0) / 100 * 1000
-
-        mem_mb = psutil.Process().memory_info().rss / (1024 * 1024)
-
-        print("\n=== Benchmark Results ===")
-        print(f"URL Classifier Average Latency:     {t_url:.3f} ms / query")
-        print(f"SMS Classifier Average Latency:     {t_sms:.3f} ms / query")
-        print(f"Network Detector Average Latency:   {t_net:.3f} ms / query")
-        print(f"Peak Process Memory (RSS):          {mem_mb:.2f} MB")
-        print(f"Target Hardware Footprint:          < 100 ms latency, < 200 MB RAM (PASSED)")
-    elif args.serve:
-        from shieldedge.api_server import app
-        print(f"\n[ShieldEdge API Server] Starting on http://localhost:{args.port}")
-        print("[ShieldEdge API Server] Endpoints:")
-        print("  POST /analyze/url   — URL phishing check")
-        print("  POST /analyze/sms   — SMS scam check")
-        print("  POST /analyze/flow  — Network anomaly check")
-        print("  GET  /alerts        — Recent alerts log")
-        print("  GET  /stats         — Detection statistics")
-        print("  GET  /health        — Health check")
-        app.run(host="0.0.0.0", port=args.port, debug=False)
+        print(f"{YELLOW}Note: only port, byte rate and packet rate are known; for full analysis use --flows <csv>.{RESET}")
+        flow = {"dst_port": int(args.flow[0]), "byte_rate": float(args.flow[1]), "packet_rate": float(args.flow[2])}
+        run_pipeline(net_det.predict_flow(flow), engine, runner, logger, use_llm)
+    elif args.flows:
+        results = net_det.predict_csv(args.flows)
+        flagged = [r for r in results if r["verdict"] != "SAFE"]
+        print(f"\n{'Row':>5}  {'Verdict':<12} {'Conf':>6}  Flow")
+        for r in results[: args.max_rows]:
+            print(f"{r['row']:>5}  {verdict_label(r['verdict']):<12} {r['confidence'] * 100:5.1f}%  {r['flow_summary']}")
+        if len(results) > args.max_rows:
+            print(f"  ... {len(results) - args.max_rows} more rows")
+        print(f"\n{len(flagged)} of {len(results)} flows flagged.")
+        for r in results:
+            logger.log_alert("NETWORK_FLOW", r["input"], r["verdict"], r["confidence"])
+        if flagged:
+            worst = max(flagged, key=lambda r: r["confidence"])
+            print(f"\nMost anomalous flow: row {worst['row']}")
+            run_pipeline(worst, engine, runner, logger, use_llm)
     elif args.qr:
         from shieldedge.qr_scanner import QRScanner, print_scan_result
-        scanner = QRScanner(url_det)
-        scan_res = scanner.scan(args.qr)
-        print_scan_result(scan_res)
-        for r in scan_res.get("results", []):
+        scan = QRScanner(url_det).scan(args.qr)
+        print_scan_result(scan)
+        for r in scan.get("results", []):
             if r.get("is_url") and r.get("url_analysis", {}).get("verdict") in {"PHISHING", "SUSPICIOUS"}:
-                print("\n[Alert: Embedded Malicious Link Triggered AI Advisory]")
-                url_raw = url_det.predict(r["raw_data"])
-                run_pipeline(url_raw, engine, runner, logger, fast_mode=args.fast)
-    elif args.dashboard:
-        from shieldedge.dashboard import show_dashboard
-        show_dashboard()
+                run_pipeline(url_det.predict(r["raw_data"]), engine, runner, logger, use_llm)
     else:
-        parser.print_help()
+        p.print_help()
 
 
 if __name__ == "__main__":

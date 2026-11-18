@@ -1,156 +1,227 @@
 """
-On-Device Llama Advisory Runner and Fallback Explainer for ShieldEdge.
-Interfaces with ExecuTorch .pte runtime on Arm or falls back to
-deterministic rule-based templates if the LLM binary is not loaded.
+On-device Llama advisory runner for ShieldEdge.
+
+Runs Llama 3.2 1B-Instruct through the native ExecuTorch `llama_main` runner
+(XNNPACK delegate, INT4 8da4w program by default), validates the generated
+explanation and combines it with the vetted remediation playbook.
+
+If the runner/model is missing, times out, or its output fails validation, the
+deterministic template explanation is used instead, so the user always gets an
+answer.
 """
 
-import os
-import subprocess
-import tempfile
 import json
+import os
 import re
+import subprocess
+import sys
+import tempfile
+import time
+
+from shieldedge.advisory_playbook import format_advisory, remediation_steps, template_explanation
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DEFAULT_PTE_PATH = os.path.join(BASE_DIR, "executorch", "llama3_2_1b.pte")
-DEFAULT_RUNNER_BIN = os.path.join(BASE_DIR, "executorch", "llama_main")
+ET_DIR = os.path.join(BASE_DIR, "executorch")
+
+# Preferred program first. The bf16 program is kept only as a slow baseline.
+PTE_CANDIDATES = [
+    os.path.join(ET_DIR, "llama3_2_1b_int4.pte"),
+    os.path.join(ET_DIR, "llama3_2_1b_bf16.pte"),
+    os.path.join(ET_DIR, "llama3_2_1b.pte"),
+]
+DEFAULT_RUNNER_BIN = os.path.join(ET_DIR, "llama_main")
 DEFAULT_TOKENIZER_PATH = os.path.join(BASE_DIR, "models", "Llama-3.2-1B-Instruct", "original", "tokenizer.model")
+
+ASSISTANT_MARKER = "<|start_header_id|>assistant<|end_header_id|>"
+MAX_NEW_TOKENS = int(os.environ.get("SHIELDEDGE_LLM_MAX_TOKENS", "96"))
+MAX_STREAM_SENTENCES = 4  # keep in sync with clean_llm_text(max_sentences)
+TIMEOUT_S = int(os.environ.get("SHIELDEDGE_LLM_TIMEOUT", "120"))
+
+_URL_RE = re.compile(r"https?://|www\.|\b[a-z0-9-]+\.(com|in|xyz|top|net|org|info)\b", re.I)
+_PHONE_RE = re.compile(r"\b\d{6,}\b")
+_EMAIL_RE = re.compile(r"\S+@\S+\.\S+")
+_CONTRADICT_RE = re.compile(
+    r"\b(is|looks|appears|seems)\s+(completely\s+|totally\s+|perfectly\s+)?(safe|legitimate|genuine|harmless)\b", re.I
+)
+
+
+def _first_existing(paths):
+    for p in paths:
+        if os.path.exists(p):
+            return p
+    return None
+
+
+def clean_llm_text(text: str, max_sentences: int = 4) -> str:
+    """Remove chat tokens / markdown, drop an unfinished last sentence, cap length."""
+    text = text.split("<|eot_id|>")[0]
+    text = re.sub(r"<\|[^|]*\|>", " ", text)
+    text = re.sub(r"[*#`_]+", "", text)
+    text = re.sub(r"^\s*(explanation|\[explanation\])\s*:?\s*", "", text, flags=re.I)
+    text = re.sub(r"\s+", " ", text).strip()
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    if sentences and not re.search(r"[.!?]$", sentences[-1]):
+        sentences = sentences[:-1]  # truncated by the token budget
+    return " ".join(sentences[:max_sentences]).strip()
+
+
+def validate_explanation(text: str, evidence: dict) -> list:
+    """Return a list of problems; an empty list means the explanation is usable."""
+    problems = []
+    if len(text) < 25:
+        problems.append("empty or too short")
+    # Anything the detector itself supplied (target + signals) may be repeated.
+    supplied = " ".join([evidence.get("target") or ""] + list(evidence.get("signals", []))).lower()
+    lowered = text.lower()
+    if _EMAIL_RE.search(text):
+        problems.append("contains an e-mail address")
+    if any(num not in supplied for num in _PHONE_RE.findall(text)):
+        problems.append("contains a phone/number sequence not supplied by the detector")
+    for m in _URL_RE.finditer(text):
+        if m.group(0).lower() not in supplied:
+            problems.append("mentions a link/domain not supplied by the detector")
+            break
+    if evidence.get("verdict") != "SAFE" and _CONTRADICT_RE.search(lowered):
+        problems.append("contradicts the detector verdict")
+    return problems
+
+
+def parse_observer(output: str):
+    m = re.search(r"PyTorchObserver\s+(\{.*?\})", output)
+    if not m:
+        return None
+    try:
+        raw = json.loads(m.group(1))
+    except json.JSONDecodeError:
+        return None
+    return {
+        "model_load_ms": raw.get("model_load_end_ms", 0) - raw.get("model_load_start_ms", 0),
+        "ttft_ms": raw.get("first_token_ms", 0) - raw.get("inference_start_ms", 0),
+        "generation_ms": raw.get("inference_end_ms", 0) - raw.get("inference_start_ms", 0),
+        "prefill_tok_s": raw.get("prefill_token_per_sec"),
+        "decode_tok_s": raw.get("decode_token_per_sec"),
+        "prompt_tokens": raw.get("prompt_tokens"),
+        "generated_tokens": raw.get("generated_tokens"),
+    }
 
 
 class LlamaAdvisoryRunner:
     def __init__(self, pte_model_path: str = None, executorch_runner_bin: str = None, tokenizer_path: str = None):
-        self.pte_model_path = pte_model_path or DEFAULT_PTE_PATH
+        self.pte_model_path = pte_model_path or _first_existing(PTE_CANDIDATES)
         self.executorch_runner_bin = executorch_runner_bin or DEFAULT_RUNNER_BIN
         self.tokenizer_path = tokenizer_path or DEFAULT_TOKENIZER_PATH
-        self.has_executorch = (
-            os.path.exists(self.pte_model_path)
+        self.has_executorch = bool(
+            self.pte_model_path
+            and os.path.exists(self.pte_model_path)
             and os.path.exists(self.executorch_runner_bin)
             and os.path.exists(self.tokenizer_path)
         )
 
-    def generate_advisory(self, evidence: dict, prompt: str, stream: bool = False) -> dict:
-        """
-        Generates explanation and remediation advice.
-        Uses ExecuTorch if configured; otherwise generates high-reliability template advisory.
-        """
-        if self.has_executorch:
-            prompt_file_path = None
-            try:
-                # Write prompt to a temp file to avoid shell escaping issues
-                with tempfile.NamedTemporaryFile("w", delete=False) as tf:
-                    tf.write(prompt)
-                    prompt_file_path = tf.name
+    @property
+    def model_name(self) -> str:
+        return os.path.basename(self.pte_model_path) if self.pte_model_path else "none"
 
-                env = os.environ.copy()
-                et_dir = os.path.dirname(self.executorch_runner_bin)
-                env["LD_LIBRARY_PATH"] = f"{et_dir}:{env.get('LD_LIBRARY_PATH', '')}"
+    # ------------------------------------------------------------------ LLM call
+    def run_llm(self, prompt: str, max_new_tokens: int = MAX_NEW_TOKENS, stream=None) -> dict:
+        """Run llama_main once. `stream` is an optional callable receiving generated text chunks."""
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as tf:
+            tf.write(prompt)
+            prompt_path = tf.name
 
-                cmd = [
-                    self.executorch_runner_bin,
-                    "--model_path", self.pte_model_path,
-                    "--tokenizer_path", self.tokenizer_path,
-                    "--prompt_file", prompt_file_path,
-                    "--max_new_tokens", "50",
-                    "--temperature", "0.2"
-                ]
+        env = os.environ.copy()
+        env["LD_LIBRARY_PATH"] = f"{ET_DIR}:{env.get('LD_LIBRARY_PATH', '')}"
+        cmd = [
+            self.executorch_runner_bin,
+            "--model_path", self.pte_model_path,
+            "--tokenizer_path", self.tokenizer_path,
+            "--prompt_file", prompt_path,
+            "--max_new_tokens", str(max_new_tokens),
+            "--temperature", "0",
+        ]
+        threads = os.environ.get("SHIELDEDGE_LLM_THREADS")
+        if threads:
+            cmd += ["--cpu_threads", threads]
 
+        t0 = time.perf_counter()
+        out_chunks = []
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env)
+            emitted = 0
+            n_markers = prompt.count(ASSISTANT_MARKER)  # the echoed prompt contains them all
+            deadline = t0 + TIMEOUT_S
+            while True:
+                chunk = proc.stdout.read1(256)
+                if not chunk:
+                    break
+                out_chunks.append(chunk.decode("utf-8", errors="replace"))
                 if stream:
-                    print("[ExecuTorch] Generating advisory on-device (streaming tokens)...", flush=True)
+                    so_far = "".join(out_chunks)
+                    if so_far.count(ASSISTANT_MARKER) >= n_markers:
+                        visible = so_far.split(ASSISTANT_MARKER, n_markers)[n_markers]
+                        visible = visible.split("PyTorchObserver")[0].split("<|eot_id|>")[0].lstrip()
+                        # Only emit complete sentences so a token-budget cut-off is never shown.
+                        ends = [m.end() for m in re.finditer(r"[.!?](\s|$)", visible)]
+                        visible = visible[: ends[MAX_STREAM_SENTENCES - 1] if len(ends) >= MAX_STREAM_SENTENCES else (ends[-1] if ends else 0)]
+                        if len(visible) > emitted:
+                            stream(visible[emitted:])
+                            emitted = len(visible)
+                if time.perf_counter() > deadline:
+                    proc.kill()
+                    raise TimeoutError(f"llama_main exceeded {TIMEOUT_S}s")
+            proc.wait(timeout=10)
+            returncode = proc.returncode
+        finally:
+            try:
+                os.remove(prompt_path)
+            except OSError:
+                pass
 
-                res = subprocess.run(cmd, capture_output=True, text=True, timeout=180, env=env)
-
-                if prompt_file_path and os.path.exists(prompt_file_path):
-                    try:
-                        os.remove(prompt_file_path)
-                    except OSError:
-                        pass
-
-                if res.returncode == 0 and res.stdout:
-                    output = res.stdout
-                    # Parse out PyTorchObserver telemetry if present
-                    observer_metrics = None
-                    obs_match = re.search(r"PyTorchObserver\s+(\{.*?\})", output)
-                    if obs_match:
-                        try:
-                            observer_metrics = json.loads(obs_match.group(1))
-                        except Exception:
-                            pass
-
-                    # Extract generated content after assistant header if using chat template
-                    if "<|start_header_id|>assistant<|end_header_id|>" in output:
-                        advisory_part = output.split("<|start_header_id|>assistant<|end_header_id|>")[-1]
-                    else:
-                        advisory_part = output
-
-                    # Clean PyTorchObserver and warning lines from advisory
-                    clean_lines = []
-                    for line in advisory_part.splitlines():
-                        line_s = line.strip()
-                        if line_s.startswith("PyTorchObserver") or line_s.startswith("I tokenizers") or line_s.startswith("E tokenizers"):
-                            continue
-                        clean_lines.append(line)
-                    advisory_text = "\n".join(clean_lines).strip()
-
-                    if advisory_text:
-                        return {
-                            "source": "ExecuTorch (Llama 3.2 1B-Instruct)",
-                            "advisory": advisory_text,
-                            "metrics": observer_metrics
-                        }
-            except Exception as e:
-                print(f"[Warning] ExecuTorch runner failed: {e}. Falling back to template explainer.")
-                if prompt_file_path and os.path.exists(prompt_file_path):
-                    try:
-                        os.remove(prompt_file_path)
-                    except OSError:
-                        pass
-
-        # Template-based deterministic advisory
+        output = "".join(out_chunks)
+        generated = output.split(ASSISTANT_MARKER)[-1].split("PyTorchObserver")[0]
         return {
-            "source": "ShieldEdge Deterministic Advisory Engine",
-            "advisory": self._generate_template_advisory(evidence)
+            "returncode": returncode,
+            "raw_output": output,
+            "generated": generated,
+            "metrics": parse_observer(output),
+            "wall_ms": (time.perf_counter() - t0) * 1000,
         }
 
-    def _generate_template_advisory(self, evidence: dict) -> str:
-        v = evidence.get("verdict")
-        itype = evidence.get("input_type")
-        signals = evidence.get("signals", [])
-        signals_text = "; ".join(signals) if signals else "anomalous attributes"
+    # ------------------------------------------------------------------ public API
+    def generate_advisory(self, evidence: dict, prompt: str, stream=None, use_llm: bool = True) -> dict:
+        steps = remediation_steps(evidence.get("input_type"), evidence.get("verdict"))
+        caveat = evidence.get("caveat", "")
+        result = {"source": "ShieldEdge template engine", "metrics": None, "validation": []}
+        explanation = None
 
-        if itype == "URL":
-            explanation = (
-                f"This web link has been classified as {v} (confidence: {evidence.get('confidence')}). "
-                f"It was flagged due to: {signals_text}. "
-                "Fraudulent links are commonly used by attackers to harvest banking credentials, OTPs, or install malicious software."
-            )
-            remediation = (
-                "1. Do not click, open, or forward this link.\n"
-                "2. If you already accessed it, change your passwords immediately and enable 2-Factor Authentication.\n"
-                "3. Contact your bank's official customer support number (listed on your card or official passbook) to verify account status.\n"
-                "4. Report this incident to CERT-In (incidents@cert-in.org.in) or call the CyberCrime Helpline (1930)."
-            )
-        elif itype == "SMS":
-            explanation = (
-                f"This SMS has been identified as a {v} message (confidence: {evidence.get('confidence')}). "
-                f"Indicators observed: {signals_text}. "
-                "Scammers commonly use false urgency (threats of disconnection or prizes) to coerce victims into making hasty decisions."
-            )
-            remediation = (
-                "1. Never share OTPs, UPI PINs, passwords, or personal identity documents.\n"
-                "2. Do not call numbers or click links provided within the message.\n"
-                "3. Verify any account or service status through official banking apps or verified portals.\n"
-                "4. Forward this scam message to the Department of Telecommunications (DoT) Chakshu / 1909 spam portal."
-            )
-        else: # NETWORK_FLOW
-            explanation = (
-                f"A local network flow anomaly was detected (confidence: {evidence.get('confidence')}). "
-                f"Observed behavior: {signals_text}. "
-                "This indicates potential malware activity, unauthorized remote access, or a device participating in malicious scanning."
-            )
-            remediation = (
-                "1. Disconnect the affected client device from your Wi-Fi or Ethernet network immediately.\n"
-                "2. Perform a full offline malware and anti-virus scan on the device.\n"
-                "3. Inspect router management settings and change your Wi-Fi WPA2/WPA3 password.\n"
-                "4. Check for unauthorized port forwards or UPnP rules in router configuration."
-            )
+        if use_llm and self.has_executorch:
+            try:
+                run = self.run_llm(prompt, stream=stream)
+                result["metrics"] = run["metrics"]
+                result["wall_ms"] = run["wall_ms"]
+                if run["returncode"] != 0:
+                    result["validation"] = [f"llama_main exited with code {run['returncode']}"]
+                else:
+                    candidate = clean_llm_text(run["generated"])
+                    problems = validate_explanation(candidate, evidence)
+                    result["validation"] = problems
+                    result["llm_raw"] = candidate
+                    if not problems:
+                        explanation = candidate
+                        result["source"] = f"Llama 3.2 1B-Instruct via ExecuTorch ({self.model_name})"
+            except (OSError, TimeoutError, subprocess.SubprocessError) as exc:
+                result["validation"] = [f"runner error: {exc}"]
+                print(f"[ShieldEdge] Llama runner failed ({exc}); using template explanation.", file=sys.stderr)
 
-        return f"[EXPLANATION]\n{explanation}\n\n[REMEDIATION]\n{remediation}"
+        if explanation is None:
+            explanation = template_explanation(evidence)
+            if use_llm and self.has_executorch:
+                result["source"] = "ShieldEdge template engine (Llama output rejected: " + "; ".join(result["validation"]) + ")"
+
+        result["explanation"] = explanation
+        result["remediation"] = steps
+        result["advisory"] = format_advisory(explanation, steps, caveat)
+        return result
+
+    def template_advisory(self, evidence: dict) -> dict:
+        """Fast path without the LLM (used by --fast and the REST API)."""
+        return self.generate_advisory(evidence, prompt="", use_llm=False)
