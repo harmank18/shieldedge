@@ -64,14 +64,18 @@ Earlier versions reported numbers that were inflated by data leakage. We fixed t
 
 | Program | Size | Load | Time to first token | Prefill | Decode | Full explanation | Peak RAM |
 |---|---|---|---|---|---|---|---|
-| `llama3_2_1b_int4.pte` (8da4w, g128, 4-bit embeddings) | 765 MB | 1.89 ± 0.10 s | 3.04 ± 0.13 s | 112 ± 2 tok/s | 31.2 ± 0.6 tok/s | 5.5 ± 0.3 s | 1.08 GB |
+| `llama3_2_1b_int4.pte` (8da4w, g128, 4-bit embeddings) | 765 MB | 1.89 ± 0.07 s | 1.71 ± 0.11 s | 113 ± 3 tok/s | 34.0 ± 0.5 tok/s | 3.8 ± 0.2 s | 1.08 GB |
+| `llama3_2_1b.pte` (bf16 baseline, 3 runs, earlier 343-token prompt) | 2.4 GB | 0.04 s | 191 ± 18 s | 1.8 ± 0.1 tok/s | 1.3 ± 0.0 tok/s | 264 ± 19 s | 2.52 GB |
 
-The earlier **bf16** export (2.4 GB) ran at about 1.9 tok/s prefill and 1.3 tok/s decode on the same laptop. It needed
-about 128 s for a reply that was cut off at 49 tokens. Explanation quality on 19 real detector outputs, including
-3 prompt-injection attempts: **100% passed validation, 100% grounded in the supplied signals, 0 raw-input leaks**
-(`results/prompt_eval_*.json`).
+Per token, INT4 is **63× faster at prefill and 26× faster at decoding**, and uses **2.3× less RAM** than the earlier bf16
+export. Together with a shorter prompt, a full explanation went from about 4.4 minutes to under 4 seconds. INT4
+loading takes longer because XNNPACK repacks the weights.
 
-Detection latency per input: URL 4.4 ms, SMS 2.7 ms, network flow 13 ms. Model files total 5 MB.
+Explanation quality on 19 flagged real detector outputs, including 3 prompt-injection attempts: **18/19 (95%) passed
+validation**. The one rejected output named "Amazon" for `amaz0n-offers.shop` and was replaced by the template.
+There were **0 raw-input leaks**, and every injection kept its threat verdict (`results/prompt_eval_*.json`).
+
+Detection latency per input: a few milliseconds for URLs and SMS, and about 13 ms for one network flow (see `results/benchmarks.md`). Model files total 5 MB.
 
 ---
 
@@ -140,7 +144,7 @@ shieldedge/
   sms_detector.py             SMS model + link / transactional / Hinglish rules
   network_detector.py         CICFlowMeter CSV mapping, Isolation Forest, flow rules
   decision_engine.py          sanitised evidence, advisory trigger, uncertainty caveat
-  prompt_constructor.py       Llama 3 chat prompt (evidence fenced as data, one fixed example)
+  prompt_constructor.py       Llama 3 chat prompt (evidence fenced as data, pre-filled reply opening)
   llama_runner.py             ExecuTorch llama_main bridge, streaming, output validation, fallback
   advisory_playbook.py        vetted remediation steps and template explanations
   sanitize.py, storage.py     input sanitising; hash-only SQLite log (mark safe / clear)
