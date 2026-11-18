@@ -288,27 +288,28 @@ class URLDetector:
         self.t_phish = self.bundle["threshold_phishing"] if self.bundle else 0.7
         self.t_susp = self.bundle["threshold_suspicious"] if self.bundle else 0.45
 
-    def score(self, url: str, features: dict = None) -> float:
-        """Phishing probability from the stacked model (heuristic fallback if no model)."""
-        f = features or extract_url_features(url)
+    def model_scores(self, urls, feature_dicts) -> np.ndarray:
+        """Raw phishing probabilities for a batch (heuristic fallback if no model)."""
         if self.bundle is None:
             w = {"suspicious_tld": .3, "brand_impersonation": .4, "has_ip": .35, "has_shortener": .25,
                  "has_at_symbol": .3, "is_punycode": .35, "free_hosting": .25, "path_has_auth_keywords": .15}
-            return float(min(0.99, 0.05 + sum(v for k, v in w.items() if f[k])))
-        norm = normalise_url(url)["norm"]
-        lr_p = self.bundle["char_lr"].predict_proba(self.bundle["vectorizer"].transform([norm]))[0, 1]
-        x = np.array([feature_vector(f) + [lr_p]], dtype=float)
-        return float(self.bundle["stacker"].predict_proba(x)[0, 1])
+            return np.array([min(0.99, 0.05 + sum(v for k, v in w.items() if f[k])) for f in feature_dicts])
+        norms = [normalise_url(u)["norm"] for u in urls]
+        lr_p = self.bundle["char_lr"].predict_proba(self.bundle["vectorizer"].transform(norms))[:, 1]
+        X = np.column_stack([np.array([feature_vector(f) for f in feature_dicts], dtype=float), lr_p])
+        return self.bundle["stacker"].predict_proba(X)[:, 1]
 
-    def predict(self, url: str) -> dict:
-        f = extract_url_features(url)
+    def score(self, url: str, features: dict = None) -> float:
+        f = features or extract_url_features(url)
+        return float(self.model_scores([url], [f])[0])
+
+    def _finalise(self, url: str, f: dict, p: float) -> dict:
+        """Apply the rule layer and thresholds to a model probability (shared by single and batch paths)."""
         host = normalise_url(url)["host"]
         signals = explain_signals(url, f)
         if not host or ("." not in host and host != "localhost"):
             return {"input_type": "URL", "input": url, "verdict": "SUSPICIOUS", "confidence": 0.5,
                     "score": 0.5, "features": f, "signals": ["The address could not be read as a normal web link"]}
-
-        p = self.score(url, f)
 
         # Explainable rule layer on top of the model.
         if f["brand_impersonation"]:
@@ -338,8 +339,18 @@ class URLDetector:
             "input_type": "URL",
             "input": url,
             "verdict": verdict,
-            "score": round(p, 4),
-            "confidence": round(p if verdict != "SAFE" else 1.0 - p, 3),
+            "score": round(float(p), 4),
+            "confidence": round(float(p) if verdict != "SAFE" else 1.0 - float(p), 3),
             "features": f,
             "signals": signals,
         }
+
+    def predict(self, url: str) -> dict:
+        f = extract_url_features(url)
+        return self._finalise(url, f, self.score(url, f))
+
+    def predict_batch(self, urls) -> list:
+        """Same decisions as predict(), vectorised for evaluation."""
+        feats = [extract_url_features(u) for u in urls]
+        probs = self.model_scores(urls, feats)
+        return [self._finalise(u, f, p) for u, f, p in zip(urls, feats, probs)]

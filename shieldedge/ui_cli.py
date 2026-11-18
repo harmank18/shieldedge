@@ -16,6 +16,7 @@ import time
 import psutil
 
 from shieldedge.decision_engine import DecisionEngine
+from shieldedge.device import device_name
 from shieldedge.llama_runner import LlamaAdvisoryRunner
 from shieldedge.network_detector import NetworkDetector
 from shieldedge.prompt_constructor import construct_prompt
@@ -41,22 +42,6 @@ BANNER = r"""
                                         |___/
  On-device threat, phishing & scam detection  |  PS3, Bharat AI-SoC Challenge
 """
-
-
-def device_name() -> str:
-    try:
-        with open("/proc/device-tree/model") as f:
-            return f.read().strip("\x00\n ")
-    except OSError:
-        pass
-    try:
-        with open("/proc/cpuinfo") as f:
-            for line in f:
-                if line.startswith("model name"):
-                    return line.split(":", 1)[1].strip()
-    except OSError:
-        pass
-    return platform.processor() or platform.machine()
 
 
 def verdict_label(verdict: str) -> str:

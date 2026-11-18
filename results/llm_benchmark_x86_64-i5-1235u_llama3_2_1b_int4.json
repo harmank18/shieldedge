@@ -1,0 +1,196 @@
+{
+  "device": {
+    "device": "12th Gen Intel(R) Core(TM) i5-1235U",
+    "arch": "x86_64",
+    "cpus": 12,
+    "ram_gb": 15.3,
+    "os": "Linux-6.8.0-149-generic-x86_64-with-glibc2.39",
+    "python": "3.12.3"
+  },
+  "program": "llama3_2_1b_int4.pte",
+  "program_size_mb": 765,
+  "max_new_tokens": 96,
+  "runs": 10,
+  "date": "2026-11-18 23:22",
+  "validation_pass_rate": 1.0,
+  "summary": {
+    "model_load_ms": {
+      "mean": 1893.5,
+      "std": 101.61938791392123
+    },
+    "ttft_ms": {
+      "mean": 3036.1,
+      "std": 130.67725297252176
+    },
+    "prefill_tok_s": {
+      "mean": 112.1554,
+      "std": 1.5953102240978416
+    },
+    "decode_tok_s": {
+      "mean": 31.171219999999998,
+      "std": 0.6261647436755144
+    },
+    "generation_ms": {
+      "mean": 5489.4,
+      "std": 330.06033118540955
+    },
+    "wall_ms": {
+      "mean": 7500.7726181000635,
+      "std": 389.25046219385666
+    },
+    "peak_rss_mb": {
+      "mean": 1078.814453125,
+      "std": 0.08027108780185031
+    },
+    "prompt_tokens": {
+      "mean": 340.4,
+      "std": 12.158216243438929
+    },
+    "generated_tokens": {
+      "mean": 76.4,
+      "std": 10.469001862641921
+    }
+  },
+  "raw": [
+    {
+      "model_load_ms": 1755,
+      "ttft_ms": 3228,
+      "generation_ms": 5594,
+      "prefill_tok_s": 111.834,
+      "decode_tok_s": 30.4311,
+      "prompt_tokens": 361,
+      "generated_tokens": 72,
+      "wall_ms": 7463.141081000231,
+      "peak_rss_mb": 1078.7421875,
+      "case": 0,
+      "valid": true,
+      "explanation": "This message is flagged because it claims to be from SBI, but in reality, it's a phishing attempt. The link is to a non-existent website, and the URL is a cheap and common domain extension that's often used in scams. The fact that the URL is a .xyz domain, which is often used in phishing, further raises red flags."
+    },
+    {
+      "model_load_ms": 1967,
+      "ttft_ms": 3042,
+      "generation_ms": 5573,
+      "prefill_tok_s": 112.426,
+      "decode_tok_s": 30.4228,
+      "prompt_tokens": 342,
+      "generated_tokens": 77,
+      "wall_ms": 7660.985081000035,
+      "peak_rss_mb": 1078.80078125,
+      "case": 1,
+      "valid": true,
+      "explanation": "This message is a clear indication of a scam, as it claims to be from SBI and threatens to block your account. The message also explicitly mentions the bank and government, which is a red flag for potential phishing or scamming activity. The link to sbi-kyc-verify.top is also suspicious, as it pretends to be SBI but is actually a fake website."
+    },
+    {
+      "model_load_ms": 1973,
+      "ttft_ms": 2891,
+      "generation_ms": 5925,
+      "prefill_tok_s": 112.764,
+      "decode_tok_s": 31.3118,
+      "prompt_tokens": 326,
+      "generated_tokens": 95,
+      "wall_ms": 8017.315731000053,
+      "peak_rss_mb": 1078.875,
+      "case": 2,
+      "valid": true,
+      "explanation": "This message is a classic red flag for scams. It uses pressure phrases like \"band ho jayega\" (it's going to happen) and \"turant\" (you're going to be) to create a sense of urgency and fear. It also asks for money to a UPI ID, which is a legitimate payment method, but is presented as a way to make money quickly."
+    },
+    {
+      "model_load_ms": 2032,
+      "ttft_ms": 3055,
+      "generation_ms": 5329,
+      "prefill_tok_s": 110.311,
+      "decode_tok_s": 31.6623,
+      "prompt_tokens": 337,
+      "generated_tokens": 72,
+      "wall_ms": 7483.954942999844,
+      "peak_rss_mb": 1078.9453125,
+      "case": 3,
+      "valid": true,
+      "explanation": "This message is flagged because it claims to be a legitimate login attempt, but the fact that the connection was quickly closed and the traffic pattern is unusual suggests that it might be a phishing attempt. The claim of a \"very short connection\" that was reset immediately is suspicious, as most legitimate connections take longer to establish. The unusual traffic pattern also raises red flags."
+    },
+    {
+      "model_load_ms": 1778,
+      "ttft_ms": 2983,
+      "generation_ms": 5082,
+      "prefill_tok_s": 112.638,
+      "decode_tok_s": 31.4435,
+      "prompt_tokens": 336,
+      "generated_tokens": 66,
+      "wall_ms": 6971.924924999712,
+      "peak_rss_mb": 1078.7890625,
+      "case": 4,
+      "valid": true,
+      "explanation": "This message is flagged because it appears to be a phishing attempt. The detector is not certain that the link is legitimate, as many legitimate websites do not ask users to update their account information. The fact that the link is hosted on a free website-builder or file-sharing platform, which can be used by anyone, also raises suspicions."
+    },
+    {
+      "model_load_ms": 1945,
+      "ttft_ms": 3301,
+      "generation_ms": 5599,
+      "prefill_tok_s": 109.361,
+      "decode_tok_s": 31.3316,
+      "prompt_tokens": 361,
+      "generated_tokens": 72,
+      "wall_ms": 7666.605925000113,
+      "peak_rss_mb": 1078.80859375,
+      "case": 0,
+      "valid": true,
+      "explanation": "This message is flagged because it claims to be from SBI, but in reality, it's a phishing attempt. The link is to a non-existent website, and the URL is a cheap and common domain extension that's often used in scams. The fact that the URL is a .xyz domain, which is often used in phishing, further raises red flags."
+    },
+    {
+      "model_load_ms": 1816,
+      "ttft_ms": 3006,
+      "generation_ms": 5555,
+      "prefill_tok_s": 113.772,
+      "decode_tok_s": 30.2079,
+      "prompt_tokens": 342,
+      "generated_tokens": 77,
+      "wall_ms": 7489.621420000276,
+      "peak_rss_mb": 1078.8671875,
+      "case": 1,
+      "valid": true,
+      "explanation": "This message is a clear indication of a scam, as it claims to be from SBI and threatens to block your account. The message also explicitly mentions the bank and government, which is a red flag for potential phishing or scamming activity. The link to sbi-kyc-verify.top is also suspicious, as it pretends to be SBI but is actually a fake website."
+    },
+    {
+      "model_load_ms": 1992,
+      "ttft_ms": 2946,
+      "generation_ms": 6004,
+      "prefill_tok_s": 110.659,
+      "decode_tok_s": 31.0661,
+      "prompt_tokens": 326,
+      "generated_tokens": 95,
+      "wall_ms": 8118.032297000354,
+      "peak_rss_mb": 1078.6953125,
+      "case": 2,
+      "valid": true,
+      "explanation": "This message is a classic red flag for scams. It uses pressure phrases like \"band ho jayega\" (it's going to happen) and \"turant\" (you're going to be) to create a sense of urgency and fear. It also asks for money to a UPI ID, which is a legitimate payment method, but is presented as a way to make money quickly."
+    },
+    {
+      "model_load_ms": 1788,
+      "ttft_ms": 2961,
+      "generation_ms": 5221,
+      "prefill_tok_s": 113.813,
+      "decode_tok_s": 31.8584,
+      "prompt_tokens": 337,
+      "generated_tokens": 72,
+      "wall_ms": 7125.891538999895,
+      "peak_rss_mb": 1078.89453125,
+      "case": 3,
+      "valid": true,
+      "explanation": "This message is flagged because it claims to be a legitimate login attempt, but the fact that the connection was quickly closed and the traffic pattern is unusual suggests that it might be a phishing attempt. The claim of a \"very short connection\" that was reset immediately is suspicious, as most legitimate connections take longer to establish. The unusual traffic pattern also raises red flags."
+    },
+    {
+      "model_load_ms": 1889,
+      "ttft_ms": 2948,
+      "generation_ms": 5012,
+      "prefill_tok_s": 113.976,
+      "decode_tok_s": 31.9767,
+      "prompt_tokens": 336,
+      "generated_tokens": 66,
+      "wall_ms": 7010.2532390001215,
+      "peak_rss_mb": 1078.7265625,
+      "case": 4,
+      "valid": true,
+      "explanation": "This message is flagged because it appears to be a phishing attempt. The detector is not certain that the link is legitimate, as many legitimate websites do not ask users to update their account information. The fact that the link is hosted on a free website-builder or file-sharing platform, which can be used by anyone, also raises suspicions."
+    }
+  ]
+}

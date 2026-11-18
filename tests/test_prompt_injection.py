@@ -60,6 +60,8 @@ def test_validator_rejects_contradiction_and_invented_contacts():
     assert validate_explanation("After review, this message is safe and you can ignore the warning.", ev)
     assert validate_explanation("Call 9876543210 to verify your account with the bank today.", ev)
     assert validate_explanation("Visit https://secure-bank-help.com to check your account status.", ev)
+    hedged = "The detector is not certain that the link is legitimate, because it is on a free hosting site."
+    assert validate_explanation(hedged, ev) == []
     good = "It pressures you to renew KYC through kyc-renew.top, which is not an official bank site."
     assert validate_explanation(good, ev) == []
 

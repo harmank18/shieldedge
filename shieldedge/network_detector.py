@@ -170,24 +170,29 @@ class NetworkDetector:
         return {"input_type": "NETWORK_FLOW", "input": summary, "flow_summary": summary, "verdict": verdict,
                 "confidence": conf, "score": round(score, 4), "signals": signals}
 
-    def predict_csv(self, path: str) -> list:
-        raw = pd.read_csv(path, low_memory=False)
-        feats = cic_to_features(raw)
-        missing = [c for c in FLOW_FEATURE_NAMES if c not in feats]
-        if len(missing) > len(FLOW_FEATURE_NAMES) // 2:
-            raise ValueError(f"{path}: not a CICFlowMeter-style flow CSV (missing {', '.join(missing)})")
+    def predict_frame(self, feats: pd.DataFrame, source: str = "flows") -> list:
+        """Verdicts for a dataframe of ShieldEdge flow features (as returned by cic_to_features)."""
         X, imputed = self._matrix(feats)
+        imputed = imputed.values
         sc = self.scores(feats)
+        labels = feats["label"].astype(str).values if "label" in feats else None
         results = []
         for i in range(len(X)):
             f = dict(zip(FLOW_FEATURE_NAMES, X[i]))
-            imputed_cols = [c for c in FLOW_FEATURE_NAMES if imputed.iloc[i][c]]
+            imputed_cols = [c for c, miss in zip(FLOW_FEATURE_NAMES, imputed[i]) if miss]
             verdict, conf, signals = self._verdict(float(sc[i]), f, imputed_cols)
             summary = flow_summary(f)
-            r = {"row": i + 1, "input_type": "NETWORK_FLOW", "input": f"{os.path.basename(path)}#{i + 1}: {summary}",
+            r = {"row": i + 1, "input_type": "NETWORK_FLOW", "input": f"{source}#{i + 1}: {summary}",
                  "flow_summary": summary, "verdict": verdict, "confidence": conf, "score": round(float(sc[i]), 4),
                  "signals": signals}
-            if "label" in feats:
-                r["label"] = str(feats["label"].iloc[i])
+            if labels is not None:
+                r["label"] = labels[i]
             results.append(r)
         return results
+
+    def predict_csv(self, path: str) -> list:
+        feats = cic_to_features(pd.read_csv(path, low_memory=False))
+        missing = [c for c in FLOW_FEATURE_NAMES if c not in feats]
+        if len(missing) > len(FLOW_FEATURE_NAMES) // 2:
+            raise ValueError(f"{path}: not a CICFlowMeter-style flow CSV (missing {', '.join(missing)})")
+        return self.predict_frame(feats, os.path.basename(path))

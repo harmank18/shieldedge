@@ -81,8 +81,12 @@ def validate_explanation(text: str, evidence: dict) -> list:
         if m.group(0).lower() not in supplied:
             problems.append("mentions a link/domain not supplied by the detector")
             break
-    if evidence.get("verdict") != "SAFE" and _CONTRADICT_RE.search(lowered):
-        problems.append("contradicts the detector verdict")
+    if evidence.get("verdict") != "SAFE":
+        for m in _CONTRADICT_RE.finditer(lowered):
+            before = lowered[max(0, m.start() - 40):m.start()]
+            if not re.search(r"\b(not|never|no|whether|if)\b|n't", before):  # "not certain it is safe" is fine
+                problems.append("contradicts the detector verdict")
+                break
     return problems
 
 
