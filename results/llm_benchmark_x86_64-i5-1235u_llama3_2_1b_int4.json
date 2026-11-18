@@ -11,186 +11,186 @@
   "program_size_mb": 765,
   "max_new_tokens": 96,
   "runs": 10,
-  "date": "2026-11-18 23:22",
+  "date": "2026-11-19 00:05",
   "validation_pass_rate": 1.0,
   "summary": {
     "model_load_ms": {
-      "mean": 1893.5,
-      "std": 101.61938791392123
+      "mean": 1892,
+      "std": 74.36247560280506
     },
     "ttft_ms": {
-      "mean": 3036.1,
-      "std": 130.67725297252176
+      "mean": 1709.3,
+      "std": 109.02094599968699
     },
     "prefill_tok_s": {
-      "mean": 112.1554,
-      "std": 1.5953102240978416
+      "mean": 113.2969,
+      "std": 2.482202312911303
     },
     "decode_tok_s": {
-      "mean": 31.171219999999998,
-      "std": 0.6261647436755144
+      "mean": 33.95351,
+      "std": 0.4742632636228774
     },
     "generation_ms": {
-      "mean": 5489.4,
-      "std": 330.06033118540955
+      "mean": 3829.8,
+      "std": 191.38024976470274
     },
     "wall_ms": {
-      "mean": 7500.7726181000635,
-      "std": 389.25046219385666
+      "mean": 5838.049090000095,
+      "std": 160.55587419336965
     },
     "peak_rss_mb": {
-      "mean": 1078.814453125,
-      "std": 0.08027108780185031
+      "mean": 1078.8796875,
+      "std": 0.08529987569394681
     },
     "prompt_tokens": {
-      "mean": 340.4,
-      "std": 12.158216243438929
+      "mean": 193.6,
+      "std": 12.103259432437564
     },
     "generated_tokens": {
-      "mean": 76.4,
-      "std": 10.469001862641921
+      "mean": 72,
+      "std": 8.219218670625303
     }
   },
   "raw": [
     {
-      "model_load_ms": 1755,
-      "ttft_ms": 3228,
-      "generation_ms": 5594,
-      "prefill_tok_s": 111.834,
-      "decode_tok_s": 30.4311,
-      "prompt_tokens": 361,
-      "generated_tokens": 72,
-      "wall_ms": 7463.141081000231,
-      "peak_rss_mb": 1078.7421875,
+      "model_load_ms": 1938,
+      "ttft_ms": 1908,
+      "generation_ms": 3783,
+      "prefill_tok_s": 112.159,
+      "decode_tok_s": 33.0667,
+      "prompt_tokens": 214,
+      "generated_tokens": 62,
+      "wall_ms": 5840.2881210004125,
+      "peak_rss_mb": 1078.90234375,
       "case": 0,
       "valid": true,
-      "explanation": "This message is flagged because it claims to be from SBI, but in reality, it's a phishing attempt. The link is to a non-existent website, and the URL is a cheap and common domain extension that's often used in scams. The fact that the URL is a .xyz domain, which is often used in phishing, further raises red flags."
+      "explanation": "This link was flagged because it uses plain HTTP, which is not secure. The link also uses the name \"SBI\" but the actual website is not an official SBI website, which is a red flag. Additionally, the use of a cheap domain ending (.xyz) is a clear indication of a phishing attempt."
     },
     {
-      "model_load_ms": 1967,
-      "ttft_ms": 3042,
-      "generation_ms": 5573,
-      "prefill_tok_s": 112.426,
-      "decode_tok_s": 30.4228,
-      "prompt_tokens": 342,
-      "generated_tokens": 77,
-      "wall_ms": 7660.985081000035,
-      "peak_rss_mb": 1078.80078125,
+      "model_load_ms": 1970,
+      "ttft_ms": 1680,
+      "generation_ms": 3529,
+      "prefill_tok_s": 116.071,
+      "decode_tok_s": 34.6133,
+      "prompt_tokens": 195,
+      "generated_tokens": 64,
+      "wall_ms": 5618.625733000044,
+      "peak_rss_mb": 1078.88671875,
       "case": 1,
       "valid": true,
-      "explanation": "This message is a clear indication of a scam, as it claims to be from SBI and threatens to block your account. The message also explicitly mentions the bank and government, which is a red flag for potential phishing or scamming activity. The link to sbi-kyc-verify.top is also suspicious, as it pretends to be SBI but is actually a fake website."
+      "explanation": "This message was flagged because it contains a bank (SBI) and government (KYC) reference, which are known red flags for scams. The presence of a link to a website that pretends to be a legitimate SBI website (SBI-KYC-Verify.TOP) is also a strong indication of a scam."
     },
     {
-      "model_load_ms": 1973,
-      "ttft_ms": 2891,
-      "generation_ms": 5925,
-      "prefill_tok_s": 112.764,
-      "decode_tok_s": 31.3118,
-      "prompt_tokens": 326,
-      "generated_tokens": 95,
-      "wall_ms": 8017.315731000053,
-      "peak_rss_mb": 1078.875,
+      "model_load_ms": 2009,
+      "ttft_ms": 1575,
+      "generation_ms": 3851,
+      "prefill_tok_s": 113.651,
+      "decode_tok_s": 34.2707,
+      "prompt_tokens": 179,
+      "generated_tokens": 78,
+      "wall_ms": 5980.1814770007695,
+      "peak_rss_mb": 1078.98828125,
       "case": 2,
       "valid": true,
-      "explanation": "This message is a classic red flag for scams. It uses pressure phrases like \"band ho jayega\" (it's going to happen) and \"turant\" (you're going to be) to create a sense of urgency and fear. It also asks for money to a UPI ID, which is a legitimate payment method, but is presented as a way to make money quickly."
+      "explanation": "This message was flagged because it contains a clear indication of a scam, specifically a \"SCAM\" (Scam of Artificial Intelligence) message. The message explicitly states that the sender is a scammer, which is a clear indication that the message is a phishing attempt or a scam. The fact that the sender is using a specific language and phrases to try to deceive the recipient further supports this conclusion."
     },
     {
-      "model_load_ms": 2032,
-      "ttft_ms": 3055,
-      "generation_ms": 5329,
-      "prefill_tok_s": 110.311,
-      "decode_tok_s": 31.6623,
-      "prompt_tokens": 337,
-      "generated_tokens": 72,
-      "wall_ms": 7483.954942999844,
+      "model_load_ms": 1831,
+      "ttft_ms": 1670,
+      "generation_ms": 4107,
+      "prefill_tok_s": 114.371,
+      "decode_tok_s": 33.6479,
+      "prompt_tokens": 191,
+      "generated_tokens": 82,
+      "wall_ms": 6048.798949000229,
+      "peak_rss_mb": 1078.90625,
+      "case": 3,
+      "valid": true,
+      "explanation": "This network connection was flagged because it's a very short connection that was reset immediately, which is typical of port scanning. The fact that the traffic pattern is unusual, with only 2 packets per second, suggests that the connection is being used for malicious purposes, such as DDoS attacks or botnets. This is why the verdict is ANOMALY, indicating that the connection is not typical of normal network activity."
+    },
+    {
+      "model_load_ms": 1797,
+      "ttft_ms": 1722,
+      "generation_ms": 3932,
+      "prefill_tok_s": 109.756,
+      "decode_tok_s": 33.4842,
+      "prompt_tokens": 189,
+      "generated_tokens": 74,
+      "wall_ms": 5836.964136999995,
+      "peak_rss_mb": 1078.82421875,
+      "case": 4,
+      "valid": true,
+      "explanation": "This link is flagged because the address \"secure-update-account.weebly.com\" is suspicious due to the presence of words like \"login\", \"verify\", \"KYC\", and \"update\" in the target URL. The detector is not certain about this verdict. It's possible that the link is legitimate, but the suspicious nature of the target URL is enough to flag it."
+    },
+    {
+      "model_load_ms": 1814,
+      "ttft_ms": 1860,
+      "generation_ms": 3690,
+      "prefill_tok_s": 115.054,
+      "decode_tok_s": 33.8798,
+      "prompt_tokens": 214,
+      "generated_tokens": 62,
+      "wall_ms": 5613.210638000055,
+      "peak_rss_mb": 1078.671875,
+      "case": 0,
+      "valid": true,
+      "explanation": "This link was flagged because it uses plain HTTP, which is not secure. The link also uses the name \"SBI\" but the actual website is not an official SBI website, which is a red flag. Additionally, the use of a cheap domain ending (.xyz) is a clear indication of a phishing attempt."
+    },
+    {
+      "model_load_ms": 1954,
+      "ttft_ms": 1704,
+      "generation_ms": 3588,
+      "prefill_tok_s": 114.437,
+      "decode_tok_s": 33.9703,
+      "prompt_tokens": 195,
+      "generated_tokens": 64,
+      "wall_ms": 5663.8575329998275,
+      "peak_rss_mb": 1078.859375,
+      "case": 1,
+      "valid": true,
+      "explanation": "This message was flagged because it contains a bank (SBI) and government (KYC) reference, which are known red flags for scams. The presence of a link to a website that pretends to be a legitimate SBI website (SBI-KYC-Verify.TOP) is also a strong indication of a scam."
+    },
+    {
+      "model_load_ms": 1902,
+      "ttft_ms": 1565,
+      "generation_ms": 3830,
+      "prefill_tok_s": 114.377,
+      "decode_tok_s": 34.4371,
+      "prompt_tokens": 179,
+      "generated_tokens": 78,
+      "wall_ms": 5851.718910999807,
+      "peak_rss_mb": 1078.90234375,
+      "case": 2,
+      "valid": true,
+      "explanation": "This message was flagged because it contains a clear indication of a scam, specifically a \"SCAM\" (Scam of Artificial Intelligence) message. The message explicitly states that the sender is a scammer, which is a clear indication that the message is a phishing attempt or a scam. The fact that the sender is using a specific language and phrases to try to deceive the recipient further supports this conclusion."
+    },
+    {
+      "model_load_ms": 1821,
+      "ttft_ms": 1664,
+      "generation_ms": 4087,
+      "prefill_tok_s": 114.784,
+      "decode_tok_s": 33.8423,
+      "prompt_tokens": 191,
+      "generated_tokens": 82,
+      "wall_ms": 6021.365792000324,
+      "peak_rss_mb": 1078.91015625,
+      "case": 3,
+      "valid": true,
+      "explanation": "This network connection was flagged because it's a very short connection that was reset immediately, which is typical of port scanning. The fact that the traffic pattern is unusual, with only 2 packets per second, suggests that the connection is being used for malicious purposes, such as DDoS attacks or botnets. This is why the verdict is ANOMALY, indicating that the connection is not typical of normal network activity."
+    },
+    {
+      "model_load_ms": 1884,
+      "ttft_ms": 1745,
+      "generation_ms": 3901,
+      "prefill_tok_s": 108.309,
+      "decode_tok_s": 34.3228,
+      "prompt_tokens": 189,
+      "generated_tokens": 74,
+      "wall_ms": 5905.479608999485,
       "peak_rss_mb": 1078.9453125,
-      "case": 3,
-      "valid": true,
-      "explanation": "This message is flagged because it claims to be a legitimate login attempt, but the fact that the connection was quickly closed and the traffic pattern is unusual suggests that it might be a phishing attempt. The claim of a \"very short connection\" that was reset immediately is suspicious, as most legitimate connections take longer to establish. The unusual traffic pattern also raises red flags."
-    },
-    {
-      "model_load_ms": 1778,
-      "ttft_ms": 2983,
-      "generation_ms": 5082,
-      "prefill_tok_s": 112.638,
-      "decode_tok_s": 31.4435,
-      "prompt_tokens": 336,
-      "generated_tokens": 66,
-      "wall_ms": 6971.924924999712,
-      "peak_rss_mb": 1078.7890625,
       "case": 4,
       "valid": true,
-      "explanation": "This message is flagged because it appears to be a phishing attempt. The detector is not certain that the link is legitimate, as many legitimate websites do not ask users to update their account information. The fact that the link is hosted on a free website-builder or file-sharing platform, which can be used by anyone, also raises suspicions."
-    },
-    {
-      "model_load_ms": 1945,
-      "ttft_ms": 3301,
-      "generation_ms": 5599,
-      "prefill_tok_s": 109.361,
-      "decode_tok_s": 31.3316,
-      "prompt_tokens": 361,
-      "generated_tokens": 72,
-      "wall_ms": 7666.605925000113,
-      "peak_rss_mb": 1078.80859375,
-      "case": 0,
-      "valid": true,
-      "explanation": "This message is flagged because it claims to be from SBI, but in reality, it's a phishing attempt. The link is to a non-existent website, and the URL is a cheap and common domain extension that's often used in scams. The fact that the URL is a .xyz domain, which is often used in phishing, further raises red flags."
-    },
-    {
-      "model_load_ms": 1816,
-      "ttft_ms": 3006,
-      "generation_ms": 5555,
-      "prefill_tok_s": 113.772,
-      "decode_tok_s": 30.2079,
-      "prompt_tokens": 342,
-      "generated_tokens": 77,
-      "wall_ms": 7489.621420000276,
-      "peak_rss_mb": 1078.8671875,
-      "case": 1,
-      "valid": true,
-      "explanation": "This message is a clear indication of a scam, as it claims to be from SBI and threatens to block your account. The message also explicitly mentions the bank and government, which is a red flag for potential phishing or scamming activity. The link to sbi-kyc-verify.top is also suspicious, as it pretends to be SBI but is actually a fake website."
-    },
-    {
-      "model_load_ms": 1992,
-      "ttft_ms": 2946,
-      "generation_ms": 6004,
-      "prefill_tok_s": 110.659,
-      "decode_tok_s": 31.0661,
-      "prompt_tokens": 326,
-      "generated_tokens": 95,
-      "wall_ms": 8118.032297000354,
-      "peak_rss_mb": 1078.6953125,
-      "case": 2,
-      "valid": true,
-      "explanation": "This message is a classic red flag for scams. It uses pressure phrases like \"band ho jayega\" (it's going to happen) and \"turant\" (you're going to be) to create a sense of urgency and fear. It also asks for money to a UPI ID, which is a legitimate payment method, but is presented as a way to make money quickly."
-    },
-    {
-      "model_load_ms": 1788,
-      "ttft_ms": 2961,
-      "generation_ms": 5221,
-      "prefill_tok_s": 113.813,
-      "decode_tok_s": 31.8584,
-      "prompt_tokens": 337,
-      "generated_tokens": 72,
-      "wall_ms": 7125.891538999895,
-      "peak_rss_mb": 1078.89453125,
-      "case": 3,
-      "valid": true,
-      "explanation": "This message is flagged because it claims to be a legitimate login attempt, but the fact that the connection was quickly closed and the traffic pattern is unusual suggests that it might be a phishing attempt. The claim of a \"very short connection\" that was reset immediately is suspicious, as most legitimate connections take longer to establish. The unusual traffic pattern also raises red flags."
-    },
-    {
-      "model_load_ms": 1889,
-      "ttft_ms": 2948,
-      "generation_ms": 5012,
-      "prefill_tok_s": 113.976,
-      "decode_tok_s": 31.9767,
-      "prompt_tokens": 336,
-      "generated_tokens": 66,
-      "wall_ms": 7010.2532390001215,
-      "peak_rss_mb": 1078.7265625,
-      "case": 4,
-      "valid": true,
-      "explanation": "This message is flagged because it appears to be a phishing attempt. The detector is not certain that the link is legitimate, as many legitimate websites do not ask users to update their account information. The fact that the link is hosted on a free website-builder or file-sharing platform, which can be used by anyone, also raises suspicions."
+      "explanation": "This link is flagged because the address \"secure-update-account.weebly.com\" is suspicious due to the presence of words like \"login\", \"verify\", \"KYC\", and \"update\" in the target URL. The detector is not certain about this verdict. It's possible that the link is legitimate, but the suspicious nature of the target URL is enough to flag it."
     }
   ]
 }

@@ -150,7 +150,7 @@ class SMSDetector:
         if a["hindi"]:
             s.append(f"Hindi/Hinglish pressure phrases: {', '.join(a['hindi'][:3])}")
         if a["authority"]:
-            s.append(f"Mentions a bank, government or company: {', '.join(x.upper() for x in a['authority'][:3])}")
+            s.append(f"Uses the name of a trusted organisation: {', '.join(x.upper() for x in a['authority'][:3])}")
         for host, reason in a["risky_links"][:2]:
             s.append(f"Contains a link to {host}, which {reason}")
         if a["upi"]:
@@ -184,7 +184,7 @@ class SMSDetector:
             p = max(p, self.t_susp)
         if a["transactional"] and not a["risky_links"] and not a["payment_ask"] and not (a["phones"] and pressure):
             p = min(p, self.t_susp - 0.01)  # genuine-looking bank/OTP/delivery message
-            signals = [x for x in signals if not x.startswith("Mentions a bank")]
+            signals = [x for x in signals if not x.startswith("Uses the name of a trusted")]
 
         if p >= self.t_scam:
             verdict = "SCAM"

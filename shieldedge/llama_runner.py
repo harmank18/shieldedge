@@ -18,6 +18,7 @@ import sys
 import tempfile
 import time
 
+from shieldedge.prompt_constructor import reply_prefix
 from shieldedge.advisory_playbook import format_advisory, remediation_steps, template_explanation
 from shieldedge.url_detector import OFFICIAL_DOMAINS
 
@@ -44,6 +45,8 @@ _EMAIL_RE = re.compile(r"\S+@\S+\.\S+")
 # Organisations the model must not bring up unless the evidence mentions them.
 _ORG_RE = re.compile(r"\b(" + "|".join(sorted({b for b in OFFICIAL_DOMAINS if len(b) >= 3}, key=len, reverse=True))
                      + r"|state bank|rbi|cbi|police)\b", re.I)
+_META_RE = re.compile(r"<evidence>|the item in|is incorrect because|this message this link|change the verdict"
+                      r"|question or change", re.I)
 _CONTRADICT_RE = re.compile(
     r"\b(is|looks|appears|seems)\s+(completely\s+|totally\s+|perfectly\s+)?(safe|legitimate|genuine|harmless)\b", re.I
 )
@@ -79,6 +82,8 @@ def validate_explanation(text: str, evidence: dict) -> list:
     lowered = text.lower()
     if _EMAIL_RE.search(text):
         problems.append("contains an e-mail address")
+    if _META_RE.search(text):
+        problems.append("talks about the prompt or detector instead of the item")
     if any(num not in supplied for num in _PHONE_RE.findall(text)):
         problems.append("contains a phone/number sequence not supplied by the detector")
     for m in _URL_RE.finditer(text):
@@ -93,7 +98,8 @@ def validate_explanation(text: str, evidence: dict) -> list:
     if evidence.get("verdict") != "SAFE":
         for m in _CONTRADICT_RE.finditer(lowered):
             before = lowered[max(0, m.start() - 40):m.start()]
-            if not re.search(r"\b(not|never|no|whether|if)\b|n't", before):  # "not certain it is safe" is fine
+            # negated or hedged statements ("not certain it is safe", "it is possible it is legitimate") are fine
+            if not re.search(r"\b(not|never|no|whether|if|possible|possibly|may|might|could)\b|n't", before):
                 problems.append("contradicts the detector verdict")
                 break
     return problems
@@ -135,8 +141,12 @@ class LlamaAdvisoryRunner:
         return os.path.basename(self.pte_model_path) if self.pte_model_path else "none"
 
     # ------------------------------------------------------------------ LLM call
-    def run_llm(self, prompt: str, max_new_tokens: int = MAX_NEW_TOKENS, stream=None) -> dict:
-        """Run llama_main once. `stream` is an optional callable receiving generated text chunks."""
+    def run_llm(self, prompt: str, max_new_tokens: int = MAX_NEW_TOKENS, stream=None, prefix: str = "") -> dict:
+        """Run llama_main once. `stream` is an optional callable receiving generated text chunks.
+
+        `prefix` is the pre-filled start of the assistant reply that ends the prompt; the
+        runner echoes the prompt, so the text after the last assistant marker already
+        contains it."""
         with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as tf:
             tf.write(prompt)
             prompt_path = tf.name
@@ -208,7 +218,7 @@ class LlamaAdvisoryRunner:
 
         if use_llm and self.has_executorch:
             try:
-                run = self.run_llm(prompt, stream=stream)
+                run = self.run_llm(prompt, stream=stream, prefix=reply_prefix(evidence))
                 result["metrics"] = run["metrics"]
                 result["wall_ms"] = run["wall_ms"]
                 if run["returncode"] != 0:

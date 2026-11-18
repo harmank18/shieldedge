@@ -1,0 +1,98 @@
+{
+  "device": {
+    "device": "12th Gen Intel(R) Core(TM) i5-1235U",
+    "arch": "x86_64",
+    "cpus": 12,
+    "ram_gb": 15.3,
+    "os": "Linux-6.8.0-149-generic-x86_64-with-glibc2.39",
+    "python": "3.12.3"
+  },
+  "program": "llama3_2_1b.pte",
+  "program_size_mb": 2358,
+  "max_new_tokens": 96,
+  "runs": 3,
+  "date": "2026-11-18 23:39",
+  "validation_pass_rate": 0.0,
+  "summary": {
+    "model_load_ms": {
+      "mean": 44.333333333333336,
+      "std": 0.5773502691896257
+    },
+    "ttft_ms": {
+      "mean": 190726.33333333334,
+      "std": 18222.999103696773
+    },
+    "prefill_tok_s": {
+      "mean": 1.8033966666666665,
+      "std": 0.07981498752322984
+    },
+    "decode_tok_s": {
+      "mean": 1.29207,
+      "std": 0.006465222347297922
+    },
+    "generation_ms": {
+      "mean": 264253,
+      "std": 18573.543226859005
+    },
+    "wall_ms": {
+      "mean": 264400.19507099956,
+      "std": 18586.664456897543
+    },
+    "peak_rss_mb": {
+      "mean": 2515.94140625,
+      "std": 0.14453125
+    },
+    "prompt_tokens": {
+      "mean": 343,
+      "std": 17.52141546793523
+    },
+    "generated_tokens": {
+      "mean": 95,
+      "std": 0.0
+    }
+  },
+  "raw": [
+    {
+      "model_load_ms": 44,
+      "ttft_ms": 210882,
+      "generation_ms": 284759,
+      "prefill_tok_s": 1.71186,
+      "decode_tok_s": 1.28592,
+      "prompt_tokens": 361,
+      "generated_tokens": 95,
+      "wall_ms": 284921.18393100007,
+      "peak_rss_mb": 2515.78515625,
+      "case": 0,
+      "valid": false,
+      "explanation": ""
+    },
+    {
+      "model_load_ms": 45,
+      "ttft_ms": 185882,
+      "generation_ms": 259441,
+      "prefill_tok_s": 1.83988,
+      "decode_tok_s": 1.29148,
+      "prompt_tokens": 342,
+      "generated_tokens": 95,
+      "wall_ms": 259583.12399299938,
+      "peak_rss_mb": 2516.0703125,
+      "case": 1,
+      "valid": false,
+      "explanation": ""
+    },
+    {
+      "model_load_ms": 44,
+      "ttft_ms": 175415,
+      "generation_ms": 248559,
+      "prefill_tok_s": 1.85845,
+      "decode_tok_s": 1.29881,
+      "prompt_tokens": 326,
+      "generated_tokens": 95,
+      "wall_ms": 248696.27728899923,
+      "peak_rss_mb": 2515.96875,
+      "case": 2,
+      "valid": false,
+      "explanation": ""
+    }
+  ]
+}

@@ -56,6 +56,7 @@ FLOWS = [
     {"dst_port": 23, "duration": 0.002, "total_fwd_packets": 2, "total_bwd_packets": 1, "is_tcp": 1,
      "syn_flag_count": 1, "rst_flag_count": 1, "packet_rate": 1500, "byte_rate": 100},
 ]
+EXAMPLE_WORDS = ("parcel", "courier", "delivery")  # words from the fixed few-shot example
 STOP = set("the a an of to and or in on is are but not for with that this which by from your you uses use an".split())
 
 
@@ -85,7 +86,9 @@ def main():
         run = runner.run_llm(prompt)
         text = clean_llm_text(run["generated"])
         problems = validate_explanation(text, ev)
+        copied = any(w in text.lower() for w in EXAMPLE_WORDS) and not any(w in raw.lower() for w in EXAMPLE_WORDS)
         rows.append({"kind": kind, "input": raw[:80], "verdict": ev["verdict"], "valid": not problems,
+                     "copied_example": copied,
                      "problems": problems, "grounded": grounded(text, ev["signals"]), "raw_leak": leak,
                      "explanation": text, "ttft_ms": (run["metrics"] or {}).get("ttft_ms")})
         print(f"[{kind:4}] {ev['verdict']:<10} valid={not problems!s:<5} grounded={rows[-1]['grounded']!s:<5} "
@@ -97,13 +100,15 @@ def main():
         "valid_rate": sum(r["valid"] for r in done) / len(done),
         "grounded_rate": sum(r["grounded"] for r in done) / len(done),
         "raw_input_leaks": sum(r["raw_leak"] for r in done),
+        "copied_example": sum(r["copied_example"] for r in done),
+        "few_shot": __import__("shieldedge.prompt_constructor", fromlist=["x"]).USE_EXAMPLE,
         "injection_cases_still_flagged": sum(1 for k, x, d in inputs if "IGNORE" in x.upper() or "SYSTEM:" in x
                                              or "ASSISTANT," in x.upper()) and all(
             d["verdict"] != "SAFE" for k, x, d in inputs if "IGNORE" in x.upper() or "SYSTEM:" in x or "Assistant," in x),
     }
     out = {"device": device_info(), "program": runner.model_name, "date": time.strftime("%Y-%m-%d %H:%M"),
            "summary": summary, "cases": rows}
-    path = os.path.join(BASE_DIR, "results", f"prompt_eval_{device_slug()}.json")
+    path = os.path.join(BASE_DIR, "results", f"prompt_eval_{device_slug()}{os.environ.get('PROMPT_EVAL_TAG', '')}.json")
     with open(path, "w") as f:
         json.dump(out, f, indent=2)
     print(f"\n{summary}\n-> {path}")
