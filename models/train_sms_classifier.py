@@ -1,75 +1,76 @@
 """
-Training script for the SMS Spam/Smishing Detector.
-Uses TF-IDF + Calibrated Linear Support Vector Classifier (LinearSVC)
-to predict scam probability and output evaluation metrics.
+Train the ShieldEdge SMS scam classifier.
+
+Data  : UCI SMS Spam Collection (exact duplicates removed *before* splitting -
+        the raw corpus has ~400 duplicates that otherwise leak into the test set)
+        + data/curated/india_sms_train.csv (team-authored Indian messages,
+        clearly marked; the separate india_sms_test.csv is never used here).
+Split : stratified 80/20 on the de-duplicated UCI data. The UCI test part and
+        the curated India test set are evaluated separately by evaluate_models.py.
+Model : TF-IDF (word 1-3-grams, sublinear tf) + LinearSVC with sigmoid
+        calibration (CalibratedClassifierCV, 5 folds) so outputs are probabilities.
+Out   : models/sms_pipeline.joblib, data/processed/sms_test.csv
+
+Run: python models/train_sms_classifier.py
 """
 
 import os
+import sys
+import time
+
 import joblib
 import pandas as pd
-from sklearn.pipeline import Pipeline
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.svm import LinearSVC
+import sklearn
 from sklearn.calibration import CalibratedClassifierCV
+from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score, f1_score
-
-from shieldedge.sms_detector import preprocess_text
+from sklearn.pipeline import Pipeline
+from sklearn.svm import LinearSVC
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_PATH = os.path.join(BASE_DIR, "data", "raw", "sms_dataset.csv")
+sys.path.insert(0, BASE_DIR)
+
+from data.download_datasets import CURATED_DIR, uci_sms_path  # noqa: E402
+from shieldedge.sms_detector import preprocess_text  # noqa: E402
+
 MODEL_OUT = os.path.join(BASE_DIR, "models", "sms_pipeline.joblib")
+PROCESSED = os.path.join(BASE_DIR, "data", "processed")
+SEED = 42
 
 
 def main():
-    if not os.path.exists(DATA_PATH):
-        raise FileNotFoundError(f"Dataset not found at {DATA_PATH}. Run download_datasets.py first.")
+    uci = pd.read_csv(uci_sms_path(), sep="\t", header=None, names=["label", "message"])
+    n_raw = len(uci)
+    uci = uci.drop_duplicates("message").reset_index(drop=True)
+    uci["source"] = "uci"
+    print(f"UCI SMS: {n_raw} messages, {n_raw - len(uci)} exact duplicates removed -> {len(uci)}")
 
-    print(f"Loading SMS dataset from {DATA_PATH}...")
-    df = pd.read_csv(DATA_PATH)
-    df["clean_msg"] = df["message"].astype(str).apply(preprocess_text)
-    df["target"] = df["label"].apply(lambda x: 1 if str(x).strip().lower() == "spam" else 0)
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        df["clean_msg"], df["target"], test_size=0.2, random_state=42, stratify=df["target"]
-    )
-
-    print(f"Training set: {len(X_train)} samples | Test set: {len(X_test)} samples")
-
-    # Pipeline: TF-IDF with sublinear scaling & n-grams (1,3) + Calibrated LinearSVC
-    base_svc = LinearSVC(random_state=42, dual=False, max_iter=3000)
-    calibrated_svc = CalibratedClassifierCV(estimator=base_svc, cv=3)
+    train_uci, test_uci = train_test_split(uci, test_size=0.2, random_state=SEED, stratify=uci.label)
+    india = pd.read_csv(os.path.join(CURATED_DIR, "india_sms_train.csv"))
+    train = pd.concat([train_uci, india], ignore_index=True)
+    print(f"Train: {len(train_uci)} UCI + {len(india)} team-authored Indian = {len(train)} "
+          f"({(train.label == 'spam').mean():.1%} spam) | UCI test: {len(test_uci)}")
 
     pipeline = Pipeline([
-        ("tfidf", TfidfVectorizer(max_features=4000, ngram_range=(1, 3), stop_words="english", sublinear_tf=True)),
-        ("clf", calibrated_svc)
+        ("tfidf", TfidfVectorizer(ngram_range=(1, 3), min_df=1, max_features=20000, sublinear_tf=True)),
+        ("clf", CalibratedClassifierCV(LinearSVC(C=1.0, class_weight="balanced"), cv=5, method="sigmoid")),
     ])
+    pipeline.fit(train.message.astype(str).map(preprocess_text), (train.label == "spam").astype(int))
 
-    pipeline.fit(X_train, y_train)
-
-    y_pred = pipeline.predict(X_test)
-    y_proba = pipeline.predict_proba(X_test)[:, 1]
-
-    # Metrics
-    cm = confusion_matrix(y_test, y_pred)
-    tn, fp, fn, tp = cm.ravel()
-    fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
-    f1 = f1_score(y_test, y_pred)
-    auc = roc_auc_score(y_test, y_proba)
-
-    print("\n=== Model Performance on Test Set ===")
-    print(f"Accuracy:        {(tp + tn) / len(y_test):.4f}")
-    print(f"Precision:       {tp / max(1, tp + fp):.4f}")
-    print(f"Recall:          {tp / max(1, tp + fn):.4f}")
-    print(f"F1-Score:        {f1:.4f}")
-    print(f"False Pos Rate:  {fpr:.4f} (Target: < 0.02)")
-    print(f"ROC-AUC:         {auc:.4f}")
-    print("\nConfusion Matrix:")
-    print(f"TN: {tn} | FP: {fp}\nFN: {fn} | TP: {tp}")
-
-    os.makedirs(os.path.dirname(MODEL_OUT), exist_ok=True)
-    joblib.dump(pipeline, MODEL_OUT)
-    print(f"\nModel exported successfully to: {MODEL_OUT}")
+    bundle = {
+        "pipeline": pipeline,
+        "threshold_scam": 0.80,
+        "threshold_suspicious": 0.50,
+        "meta": {
+            "dataset": "UCI SMS Spam Collection (deduplicated) + team-authored Indian SMS (india_sms_train.csv)",
+            "n_train": int(len(train)), "n_test_uci": int(len(test_uci)),
+            "sklearn": sklearn.__version__, "trained": time.strftime("%Y-%m-%d"),
+        },
+    }
+    joblib.dump(bundle, MODEL_OUT, compress=3)
+    os.makedirs(PROCESSED, exist_ok=True)
+    test_uci[["label", "message"]].to_csv(os.path.join(PROCESSED, "sms_test.csv"), index=False)
+    print(f"Saved {MODEL_OUT} ({os.path.getsize(MODEL_OUT) / 1e6:.2f} MB). Run models/evaluate_models.py for metrics.")
 
 
 if __name__ == "__main__":
