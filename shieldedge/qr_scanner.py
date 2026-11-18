@@ -103,7 +103,7 @@ class QRScanner:
         if self.url_detector is None:
             from shieldedge.url_detector import URLDetector
             base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            model_path = os.path.join(base, "models", "url_rf_model.joblib")
+            model_path = os.path.join(base, "models", "url_model.joblib")
             self.url_detector = URLDetector(model_path)
 
     def scan(self, image_path: str) -> dict:

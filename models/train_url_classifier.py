@@ -1,96 +1,135 @@
 """
-Training script for the URL Phishing Detector.
-Extracts lexical features, trains a Random Forest Classifier, 
-computes evaluation metrics (F1, FPR, ROC-AUC), and saves model.
+Train the ShieldEdge URL phishing model (stacked char-n-gram LR + structural features).
+
+Data      : Mitake/PhishingURLsANDBenignURLs (Hugging Face), de-duplicated,
+            150k benign + 75k phishing sampled (2:1, closer to real traffic than 50/50).
+Split     : grouped by *registered domain* (70% train / 10% validation / 20% test),
+            so no website appears in more than one split - a random split leaks
+            ~50% of test domains into training and inflates every metric.
+Model     : 1) char 3-5-gram TF-IDF -> LogisticRegression; its out-of-fold
+               probability (GroupKFold, no leakage) becomes one input of
+            2) HistGradientBoosting over 22 structural features + LR probability.
+Thresholds: chosen on the validation split only:
+              PHISHING   -> validation FPR <= 1%
+              SUSPICIOUS -> validation FPR <= 4%
+Outputs   : models/url_model.joblib, data/processed/url_test.csv (held-out split)
+
+Run: python models/train_url_classifier.py
 """
 
 import os
-import joblib
-import pandas as pd
-import numpy as np
-from sklearn.ensemble import RandomForestClassifier, HistGradientBoostingClassifier, VotingClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score, f1_score
+import sys
+import time
 
-from shieldedge.url_detector import extract_url_features, FEATURE_NAMES
+import joblib
+import numpy as np
+import pandas as pd
+import sklearn
+from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import GroupKFold, GroupShuffleSplit
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_PATH = os.path.join(BASE_DIR, "data", "raw", "url_dataset.csv")
-MODEL_OUT = os.path.join(BASE_DIR, "models", "url_rf_model.joblib")
+sys.path.insert(0, BASE_DIR)
+
+from data.download_datasets import MITAKE_REPO, mitake_urls_path  # noqa: E402
+from shieldedge.url_detector import (FEATURE_NAMES, extract_url_features, feature_vector,  # noqa: E402
+                                     normalise_url, split_host)
+
+MODEL_OUT = os.path.join(BASE_DIR, "models", "url_model.joblib")
+PROCESSED = os.path.join(BASE_DIR, "data", "processed")
+SEED = 42
+N_BENIGN, N_PHISH = 150_000, 75_000
+
+
+def threshold_for_fpr(y, p, max_fpr):
+    """Smallest threshold whose false-positive rate on (y, p) is <= max_fpr."""
+    neg = np.sort(p[y == 0])[::-1]
+    k = int(np.floor(max_fpr * len(neg)))
+    return float(neg[k] + 1e-6) if k < len(neg) else 0.0
+
+
+def make_vectorizer():
+    return TfidfVectorizer(analyzer="char_wb", ngram_range=(3, 5), min_df=3, max_features=200_000,
+                           sublinear_tf=True, dtype=np.float32)
 
 
 def main():
-    if not os.path.exists(DATA_PATH):
-        raise FileNotFoundError(f"Dataset not found at {DATA_PATH}. Run download_datasets.py first.")
+    t0 = time.time()
+    df = pd.read_csv(mitake_urls_path()).dropna(subset=["url"])
+    df["url"] = df["url"].astype(str).str.strip()
+    df = df[df["url"] != ""].drop_duplicates("url")
+    df = pd.concat([
+        df[df.label == 0].sample(N_BENIGN, random_state=SEED),
+        df[df.label == 1].sample(N_PHISH, random_state=SEED),
+    ]).reset_index(drop=True)
+    print(f"Loaded {len(df):,} URLs ({N_BENIGN:,} benign / {N_PHISH:,} phishing)")
 
-    print(f"Loading URL dataset from {DATA_PATH}...")
-    df = pd.read_csv(DATA_PATH)
+    parsed = [normalise_url(u) for u in df.url]
+    df["norm"] = [p["norm"] for p in parsed]
+    df["domain"] = [split_host(p["host"])[0] or p["host"] for p in parsed]
+    y = df.label.values.astype(int)
+    X_feat = np.array([feature_vector(extract_url_features(u)) for u in df.url], dtype=float)
+    print(f"Features extracted in {time.time() - t0:.0f}s")
 
-    print("Extracting features from URLs...")
-    feature_rows = []
-    labels = []
-    for _, row in df.iterrows():
-        url = str(row["url"])
-        label = 1 if row["label"] == "phishing" else 0
-        feats = extract_url_features(url)
-        feature_rows.append([feats[k] for k in FEATURE_NAMES])
-        labels.append(label)
+    idx = np.arange(len(df))
+    rest, test = next(GroupShuffleSplit(1, test_size=0.20, random_state=SEED).split(idx, y, df.domain))
+    tr_i, va_i = next(GroupShuffleSplit(1, test_size=0.125, random_state=SEED).split(rest, y[rest], df.domain.values[rest]))
+    train, val = rest[tr_i], rest[va_i]
+    for name, part in (("train", train), ("val", val), ("test", test)):
+        print(f"  {name:<5} {len(part):>7,} rows, {df.domain.values[part].size and len(set(df.domain.values[part])):>7,} domains, "
+              f"{y[part].mean():.1%} phishing")
+    assert not set(df.domain.values[test]) & set(df.domain.values[train]), "domain leakage"
 
-    X = np.array(feature_rows)
-    y = np.array(labels)
+    # 1) out-of-fold char-n-gram probabilities for the stacker
+    oof = np.zeros(len(train))
+    for k, (a, b) in enumerate(GroupKFold(n_splits=5).split(train, y[train], df.domain.values[train])):
+        vec = make_vectorizer()
+        lr = LogisticRegression(C=4, max_iter=2000, class_weight="balanced")
+        lr.fit(vec.fit_transform(df.norm.values[train][a]), y[train][a])
+        oof[b] = lr.predict_proba(vec.transform(df.norm.values[train][b]))[:, 1]
+        print(f"  OOF fold {k + 1}/5 done ({time.time() - t0:.0f}s)")
+    vec = make_vectorizer()
+    char_lr = LogisticRegression(C=4, max_iter=2000, class_weight="balanced")
+    char_lr.fit(vec.fit_transform(df.norm.values[train]), y[train])
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
-    )
+    # 2) stacker
+    stacker = HistGradientBoostingClassifier(max_iter=400, learning_rate=0.08, max_leaf_nodes=48,
+                                             l2_regularization=1.0, random_state=SEED)
+    stacker.fit(np.column_stack([X_feat[train], oof]), y[train])
 
-    print(f"Training set: {len(X_train)} samples | Test set: {len(X_test)} samples")
-    rf = RandomForestClassifier(
-        n_estimators=100,
-        max_depth=12,
-        class_weight={0: 2.0, 1: 1.0},
-        min_samples_leaf=2,
-        random_state=42,
-        n_jobs=-1
-    )
-    hgb = HistGradientBoostingClassifier(
-        max_iter=150,
-        max_depth=10,
-        class_weight={0: 2.2, 1: 1.0},
-        min_samples_leaf=20,
-        l2_regularization=0.1,
-        random_state=42
-    )
+    def predict(rows):
+        lr_p = char_lr.predict_proba(vec.transform(df.norm.values[rows]))[:, 1]
+        return stacker.predict_proba(np.column_stack([X_feat[rows], lr_p]))[:, 1]
 
-    clf = VotingClassifier(
-        estimators=[("rf", rf), ("hgb", hgb)],
-        voting="soft",
-        weights=[1, 2]
-    )
-    clf.fit(X_train, y_train)
+    p_val = predict(val)
+    t_phish = threshold_for_fpr(y[val], p_val, 0.01)
+    t_susp = threshold_for_fpr(y[val], p_val, 0.04)
+    print(f"Validation AUC {roc_auc_score(y[val], p_val):.4f} | thresholds: PHISHING>={t_phish:.3f}, SUSPICIOUS>={t_susp:.3f}")
 
-    y_pred = clf.predict(X_test)
-    y_proba = clf.predict_proba(X_test)[:, 1]
-
-    # Metrics
-    cm = confusion_matrix(y_test, y_pred)
-    tn, fp, fn, tp = cm.ravel()
-    fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
-    f1 = f1_score(y_test, y_pred)
-    auc = roc_auc_score(y_test, y_proba)
-
-    print("\n=== Model Performance on Test Set ===")
-    print(f"Accuracy:        {(tp + tn) / len(y_test):.4f}")
-    print(f"Precision:       {tp / max(1, tp + fp):.4f}")
-    print(f"Recall:          {tp / max(1, tp + fn):.4f}")
-    print(f"F1-Score:        {f1:.4f}")
-    print(f"False Pos Rate:  {fpr:.4f} (Target: < 0.02)")
-    print(f"ROC-AUC:         {auc:.4f}")
-    print("\nConfusion Matrix:")
-    print(f"TN: {tn} | FP: {fp}\nFN: {fn} | TP: {tp}")
-
-    os.makedirs(os.path.dirname(MODEL_OUT), exist_ok=True)
-    joblib.dump(clf, MODEL_OUT)
-    print(f"\nModel exported successfully to: {MODEL_OUT}")
+    bundle = {
+        "vectorizer": vec,
+        "char_lr": char_lr,
+        "stacker": stacker,
+        "feature_names": FEATURE_NAMES,
+        "threshold_phishing": t_phish,
+        "threshold_suspicious": t_susp,
+        "meta": {
+            "dataset": f"{MITAKE_REPO[0]} ({N_BENIGN} benign / {N_PHISH} phishing sampled, seed {SEED})",
+            "split": "GroupShuffleSplit by registered domain: 70/10/20",
+            "n_train": int(len(train)), "n_val": int(len(val)), "n_test": int(len(test)),
+            "sklearn": sklearn.__version__,
+            "trained": time.strftime("%Y-%m-%d"),
+        },
+    }
+    joblib.dump(bundle, MODEL_OUT, compress=3)
+    os.makedirs(PROCESSED, exist_ok=True)
+    df.iloc[test][["url", "label", "domain"]].to_csv(os.path.join(PROCESSED, "url_test.csv"), index=False)
+    print(f"Saved {MODEL_OUT} ({os.path.getsize(MODEL_OUT) / 1e6:.1f} MB) and held-out test split "
+          f"({len(test):,} rows) in {time.time() - t0:.0f}s")
+    print("Run models/evaluate_models.py for the held-out metrics.")
 
 
 if __name__ == "__main__":

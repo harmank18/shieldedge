@@ -24,7 +24,7 @@ from shieldedge.storage import AlertLogger
 from shieldedge.url_detector import URLDetector
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-URL_MODEL_PATH = os.path.join(BASE_DIR, "models", "url_rf_model.joblib")
+URL_MODEL_PATH = os.path.join(BASE_DIR, "models", "url_model.joblib")
 SMS_MODEL_PATH = os.path.join(BASE_DIR, "models", "sms_pipeline.joblib")
 NET_MODEL_PATH = os.path.join(BASE_DIR, "models", "network_isolation_forest.joblib")
 

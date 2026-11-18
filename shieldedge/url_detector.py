@@ -1,305 +1,345 @@
 """
-URL Feature Extraction and Threat Detection Module for ShieldEdge.
-Extracts 22 lexical and structural indicators without making network calls.
-Enhanced v2: Expanded TLDs, Indian brands, homoglyph detection, Shannon entropy,
-punycode detection, multi-part ccTLD resolution, and spoofing detection.
+URL phishing detector for ShieldEdge (fully offline - no DNS/WHOIS/HTTP calls).
+
+Pipeline
+  1. normalise_url(): lower-case, strip scheme and leading "www." so that the
+     model sees the same representation at training and inference time
+     (the training corpus stores URLs without a scheme).
+  2. Two views of the URL:
+       * character 3-5-gram TF-IDF  -> logistic regression (lexical "shape")
+       * 22 hand-crafted structural features (length, TLD risk, brand misuse,
+         entropy, free-hosting, ...)
+     A gradient-boosted model combines both (stacking).
+  3. Rule layer:
+       * official-domain allowlist for high-value Indian brands/government
+         sites (never applied to free/shared hosting platforms),
+       * HTTPS / IP / shortener signals for the explanation.
+
+Every signal string is written in plain language because it is what the
+on-device Llama explains to the user.
 """
 
-import re
-import os
 import math
+import os
+import re
+from urllib.parse import urlsplit
+
 import joblib
 import numpy as np
-from urllib.parse import urlparse
 
-# Multi-part country code TLDs (e.g. .co.in, .gov.in, .co.uk)
+# ----------------------------------------------------------------------------- reference lists
 MULTI_PART_TLDS = {
-    "co.in", "gov.in", "net.in", "org.in", "ac.in", "edu.in", "mil.in", "nic.in", "res.in",
-    "co.uk", "org.uk", "gov.uk", "ac.uk", "net.uk",
-    "com.au", "net.au", "org.au", "edu.au", "gov.au",
-    "co.jp", "ne.jp", "or.jp", "go.jp", "ac.jp",
-    "co.nz", "org.nz", "net.nz", "govt.nz",
-    "com.br", "net.br", "gov.br",
-    "com.sg", "edu.sg", "gov.sg",
+    "co.in", "gov.in", "net.in", "org.in", "ac.in", "edu.in", "mil.in", "nic.in", "res.in", "firm.in", "gen.in", "ind.in",
+    "co.uk", "org.uk", "gov.uk", "ac.uk", "com.au", "net.au", "org.au", "co.jp", "co.nz", "com.br", "com.sg", "com.cn",
 }
 
-# Suspicious / high-risk TLDs frequently abused in phishing and malware campaigns
 SUSPICIOUS_TLDS = {
-    "xyz", "top", "club", "click", "win", "online", "vip", "site",
-    "tk", "ml", "cf", "gq", "biz", "info", "live",
-    "icu", "pw", "cc", "work", "link", "mobi", "name", "pro",
-    "tel", "ws", "cat", "zip", "mov", "fit", "uno", "fun",
-    "rest", "shop", "store", "world", "today", "tech", "space",
-    "life", "cyou", "bond", "cfd", "sbs", "monster", "quest",
-    "bar", "coupons", "ru", "cn", "ga", "loan", "review",
+    "xyz", "top", "club", "click", "win", "online", "vip", "site", "tk", "ml", "cf", "gq", "ga", "biz", "info", "live",
+    "icu", "pw", "cc", "work", "link", "mobi", "zip", "mov", "fit", "uno", "fun", "rest", "shop", "store", "world",
+    "today", "space", "life", "cyou", "bond", "cfd", "sbs", "monster", "quest", "bar", "loan", "review", "buzz", "ru", "cn",
 }
 
-# Popular brands frequently targeted by Indian and international phishing
-POPULAR_BRANDS = [
-    # Indian Banks & Financial Services
-    "sbi", "onlinesbi", "hdfc", "hdfcbank", "icici", "icicibank", "axis", "axisbank",
-    "punjabnational", "pnb", "rbi", "uidai", "aadhaar", "incometax",
-    "paytm", "phonepe", "gpay", "amazon", "flipkart", "irctc", "trai",
-    # Additional High-Target Indian Entities
-    "jio", "bsnl", "lic", "nsdl", "epfo", "digilocker",
-    "zomato", "swiggy", "myntra", "meesho", "cred", "razorpay",
-    "bajajfinserv", "kotak", "yesbank", "canarabank", "npci",
-    "bhim", "mtnl", "airtel", "vodafone", "vi", "boi", "ubi", "iob",
-    "idbi", "federalbank", "indusind", "ujjivan", "olx", "naukri",
-    "linkedin", "instagram", "facebook", "whatsapp", "telegram",
-    "netflix", "hotstar", "jiocinema", "zerodha", "groww", "upstox",
-    "angelone", "pmkisan", "ayushman",
-]
-
-SHORTENER_DOMAINS = {
-    "bit.ly", "tinyurl.com", "t.co", "goo.gl", "is.gd",
-    "buff.ly", "ow.ly", "rb.gy", "cutt.ly", "shorturl.at"
+# Official registered domains per brand/agency (verified manually). A brand name
+# appearing in any *other* registered domain is treated as impersonation.
+OFFICIAL_DOMAINS = {
+    "sbi": {"onlinesbi.sbi", "sbi.co.in", "sbi.bank.in", "sbicard.com", "sbilife.co.in", "yonosbi.com"},
+    "hdfc": {"hdfcbank.com", "hdfc.com", "hdfclife.com", "hdfcergo.com", "hdfcbank.bank.in"},
+    "icici": {"icicibank.com", "icicidirect.com", "iciciprulife.com", "icicilombard.com"},
+    "axis": {"axisbank.com", "axisbank.co.in", "axisdirect.in"},
+    "kotak": {"kotak.com", "kotaksecurities.com"},
+    "pnb": {"pnbindia.in", "pnb.co.in", "netpnb.com"},
+    "canarabank": {"canarabank.com", "canarabank.in"},
+    "bankofbaroda": {"bankofbaroda.in", "bankofbaroda.com", "bobibanking.com"},
+    "yesbank": {"yesbank.in"},
+    "indusind": {"indusind.com"},
+    "idbi": {"idbibank.in"},
+    "rbi": {"rbi.org.in"},
+    "npci": {"npci.org.in"},
+    "uidai": {"uidai.gov.in"},
+    "aadhaar": {"uidai.gov.in"},
+    "incometax": {"incometax.gov.in", "incometaxindia.gov.in"},
+    "epfo": {"epfindia.gov.in"},
+    "nsdl": {"nsdl.co.in", "nsdl.com", "egov-nsdl.co.in"},
+    "digilocker": {"digilocker.gov.in"},
+    "irctc": {"irctc.co.in", "irctc.com"},
+    "lic": {"licindia.in"},
+    "trai": {"trai.gov.in"},
+    "paytm": {"paytm.com", "paytm.in", "paytmbank.com"},
+    "phonepe": {"phonepe.com"},
+    "gpay": {"pay.google.com"},
+    "bhim": {"bhimupi.org.in"},
+    "amazon": {"amazon.in", "amazon.com", "amazonpay.in", "amzn.in", "amzn.to"},
+    "flipkart": {"flipkart.com"},
+    "myntra": {"myntra.com"},
+    "meesho": {"meesho.com"},
+    "airtel": {"airtel.in", "airtel.com"},
+    "jio": {"jio.com", "jiomart.com", "jiocinema.com"},
+    "bsnl": {"bsnl.co.in", "bsnl.in"},
+    "zomato": {"zomato.com"},
+    "swiggy": {"swiggy.com", "swiggy.in"},
+    "zerodha": {"zerodha.com"},
+    "groww": {"groww.in"},
+    "whatsapp": {"whatsapp.com", "whatsapp.net", "wa.me"},
+    "instagram": {"instagram.com"},
+    "facebook": {"facebook.com", "fb.com"},
+    "netflix": {"netflix.com"},
+    "microsoft": {"microsoft.com", "live.com", "office.com", "microsoftonline.com", "outlook.com"},
+    "apple": {"apple.com", "icloud.com"},
+    "google": {"google.com", "google.co.in", "youtube.com", "gmail.com"},
+    "paypal": {"paypal.com"},
 }
+ALL_OFFICIAL = set().union(*OFFICIAL_DOMAINS.values()) | {"gov.in", "nic.in", "india.gov.in", "cybercrime.gov.in", "sancharsaathi.gov.in"}
 
-AUTH_KEYWORDS = [
-    "login", "verify", "secure", "update", "confirm", "account",
-    "signin", "banking", "netbanking", "credential", "password",
-    "otp", "authenticate", "validation", "kyc", "identity", "bill"
-]
+# Platforms where anyone can publish content: never trusted by the allowlist.
+SHARED_HOSTING = (
+    "sites.google.com", "docs.google.com", "forms.gle", "drive.google.com", "storage.googleapis.com",
+    "weebly.com", "wixsite.com", "web.app", "firebaseapp.com", "github.io", "blogspot.com", "000webhostapp.com",
+    "netlify.app", "vercel.app", "pages.dev", "workers.dev", "glitch.me", "herokuapp.com", "duckdns.org",
+    "ngrok.io", "ngrok-free.app", "repl.co", "azurewebsites.net", "blob.core.windows.net", "s3.amazonaws.com",
+    "r2.dev", "webflow.io", "square.site", "godaddysites.com", "yolasite.com", "jimdosite.com", "tiiny.site",
+)
 
-HOMOGLYPH_MAP = {
-    "0": "o", "1": "l", "3": "e", "4": "a",
-    "5": "s", "6": "g", "7": "t", "8": "b"
-}
+SHORTENER_DOMAINS = {"bit.ly", "tinyurl.com", "t.co", "goo.gl", "is.gd", "buff.ly", "ow.ly", "rb.gy", "cutt.ly",
+                     "shorturl.at", "tiny.cc", "t.ly", "s.id", "v.gd", "short.gy"}
+
+AUTH_KEYWORDS = ("login", "verify", "secure", "update", "confirm", "account", "signin", "banking", "netbanking",
+                 "credential", "password", "otp", "authenticate", "validation", "kyc", "identity", "wallet", "reward")
+
+HOMOGLYPH_DIGITS = set("013456789")
 
 FEATURE_NAMES = [
-    "url_length", "domain_length", "dot_count", "has_ip",
-    "is_https", "suspicious_tld", "brand_in_domain", "hyphen_count",
-    "digit_ratio", "directory_depth", "has_shortener", "subdomain_count",
-    "special_char_count",
-    # --- v2 features ---
-    "has_at_symbol", "has_double_slash_in_path", "is_punycode",
-    "domain_entropy", "query_param_count", "path_has_auth_keywords",
-    "consecutive_hyphens", "tld_in_subdomain", "homoglyph_score"
+    "url_length", "host_length", "dot_count", "has_ip", "suspicious_tld", "brand_impersonation",
+    "hyphen_count", "digit_ratio", "directory_depth", "has_shortener", "subdomain_count", "special_char_count",
+    "has_at_symbol", "has_double_slash_in_path", "is_punycode", "domain_entropy", "query_param_count",
+    "path_has_auth_keywords", "consecutive_hyphens", "tld_in_subdomain", "homoglyph_score", "free_hosting",
 ]
 
+_IP_RE = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
+_TOKEN_RE = re.compile(r"[a-z]+")
+_GLUE_WORDS = {"bank", "banking", "net", "netbanking", "online", "card", "cards", "kyc", "pay", "upi", "care", "help",
+               "support", "reward", "rewards", "update", "verify", "login", "secure", "india", "in", "customer", "app",
+               "yono", "life", "loan", "refund", "points", "offer", "offers", "sim"}
 
-def _shannon_entropy(s: str) -> float:
-    """Computes Shannon entropy of string."""
+
+# ----------------------------------------------------------------------------- parsing helpers
+def normalise_url(url: str) -> dict:
+    """Parse a URL without ever raising. Returns scheme, host, path, query and the normalised string."""
+    raw = (url or "").strip()
+    scheme = ""
+    m = re.match(r"^([a-zA-Z][a-zA-Z0-9+.\-]*)://", raw)
+    if m:
+        scheme = m.group(1).lower()
+        rest = raw[m.end():]
+    else:
+        rest = raw
+    rest_l = rest.lower()
+    try:
+        parts = urlsplit("http://" + rest)
+        host = (parts.hostname or "").lower()
+        path, query = parts.path, parts.query
+    except ValueError:  # e.g. malformed IPv6 brackets
+        host = re.split(r"[/?#:]", rest_l, 1)[0].strip("[]")
+        after = rest[len(host):]
+        path, _, query = after.partition("?")
+    if host.startswith("www."):
+        host = host[4:]
+    norm = rest_l[4:] if rest_l.startswith("www.") else rest_l
+    return {"scheme": scheme, "host": host, "path": path or "", "query": query or "", "norm": norm[:300]}
+
+
+def split_host(host: str):
+    """Return (registered_domain, subdomain_labels, tld)."""
+    labels = [p for p in host.split(".") if p]
+    if len(labels) < 2:
+        return host, [], labels[-1] if labels else ""
+    tld = labels[-1]
+    n = 2
+    if len(labels) >= 3 and f"{labels[-2]}.{labels[-1]}" in MULTI_PART_TLDS:
+        tld, n = f"{labels[-2]}.{labels[-1]}", 3
+    return ".".join(labels[-n:]), labels[:-n], tld
+
+
+def is_shared_hosting(host: str) -> bool:
+    return any(host == s or host.endswith("." + s) for s in SHARED_HOSTING)
+
+
+def official_brand(host: str):
+    """Brand name if the host is an official domain (and not shared hosting), else None."""
+    if is_shared_hosting(host):
+        return None
+    for brand, domains in OFFICIAL_DOMAINS.items():
+        if any(host == d or host.endswith("." + d) for d in domains):
+            return brand
+    if host.endswith(".gov.in") or host.endswith(".nic.in"):
+        return "government of India"
+    return None
+
+
+def impersonated_brand(host: str):
+    """Brand whose name appears in the host although the host is not one of its official domains."""
+    if official_brand(host) or split_host(host)[0] in ALL_OFFICIAL:
+        return None  # official site, or user content on the brand's own platform (e.g. docs.google.com)
+    tokens = _TOKEN_RE.findall(host)
+    joined = "".join(tokens)
+    for brand in OFFICIAL_DOMAINS:
+        if len(brand) <= 4:
+            # Short names (sbi, lic, jio...) must be a whole token or glued to a scam word
+            # ("sbikyc", "hdfcbank-login") - avoids matching "license" or "public".
+            hit = brand in tokens or any(t.startswith(brand) and t[len(brand):] in _GLUE_WORDS for t in tokens)
+        else:
+            hit = brand in joined
+        if hit:
+            return brand
+    return None
+
+
+def _entropy(s: str) -> float:
     if not s:
         return 0.0
-    freq = {}
-    for c in s:
-        freq[c] = freq.get(c, 0) + 1
-    return -sum((v / len(s)) * math.log2(v / len(s)) for v in freq.values())
+    freq = {c: s.count(c) for c in set(s)}
+    return -sum(v / len(s) * math.log2(v / len(s)) for v in freq.values())
 
 
+# ----------------------------------------------------------------------------- features
 def extract_url_features(url: str) -> dict:
-    """Extracts 22 lexical and structural features from a URL string."""
-    if not url.startswith(("http://", "https://")):
-        url_parsed = urlparse("http://" + url)
-    else:
-        url_parsed = urlparse(url)
+    """22 structural features computed on the normalised URL (scheme-independent)."""
+    p = normalise_url(url)
+    host, path, query, norm = p["host"], p["path"], p["query"], p["norm"]
+    reg, subs, tld = split_host(host)
+    name = reg.split(".")[0] if reg else host
+    tld_last = host.rsplit(".", 1)[-1] if "." in host else ""
+    sub_str = ".".join(subs)
 
-    domain = url_parsed.netloc.lower().split(":")[0]
-    path = url_parsed.path
-
-    # Multi-part ccTLD resolution (.co.in, .gov.in, etc.)
-    parts = domain.split(".")
-    tld_parts_count = 1
-    if len(parts) >= 2:
-        two_part = f"{parts[-2]}.{parts[-1]}"
-        if two_part in MULTI_PART_TLDS:
-            tld = two_part
-            tld_parts_count = 2
-        else:
-            tld = parts[-1]
-    else:
-        tld = parts[0] if parts else ""
-
-    subdomains = max(0, len(parts) - 1 - tld_parts_count)
-    domain_name = parts[-1 - tld_parts_count] if len(parts) > tld_parts_count else domain
-
-    # Check for IP address
-    ip_pattern = r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$"
-    has_ip = 1 if re.match(ip_pattern, domain) else 0
-
-    # Scheme
-    is_https = 1 if url_parsed.scheme == "https" else 0
-
-    # Suspicious TLD check
-    suspicious_tld = 1 if tld in SUSPICIOUS_TLDS or (parts and parts[-1] in SUSPICIOUS_TLDS) else 0
-
-    # Brand impersonation check:
-    # A brand is impersonated IF the brand name appears in domain but the domain
-    # does NOT officially belong to that brand.
-    brand_found = 0
-    for brand in POPULAR_BRANDS:
-        if brand in domain:
-            # Legitimate brand domain check
-            is_legit = (
-                domain == f"{brand}.com" or
-                domain == f"{brand}.in" or
-                domain == f"{brand}.co.in" or
-                domain == f"{brand}.gov.in" or
-                domain == f"{brand}.sbi" or
-                domain.endswith(f".{brand}.com") or
-                domain.endswith(f".{brand}.in") or
-                domain.endswith(f".{brand}.co.in") or
-                domain.endswith(f".{brand}.gov.in") or
-                domain.endswith(f".{brand}.sbi") or
-                domain.endswith(f".{brand}.net.in")
-            )
-            if not is_legit:
-                brand_found = 1
-                break
-
-    url_len = len(url)
-    domain_len = len(domain)
-    dot_count = url.count(".")
-    hyphen_count = url.count("-")
-    digits = sum(c.isdigit() for c in url)
-    digit_ratio = digits / max(1, url_len)
-    depth = len([p for p in path.split("/") if p])
-    has_shortener = 1 if domain in SHORTENER_DOMAINS else 0
-    specials = sum(url.count(c) for c in ["@", "%", "=", "?", "&", "_", "!"])
-
-    # --- v2 features ---
-    has_at = 1 if "@" in url else 0
-    after_scheme = url.split("//", 1)[-1] if "//" in url else url
-    has_double_slash = 1 if "//" in after_scheme else 0
-    is_punycode = 1 if "xn--" in domain else 0
-
-    # Entropy of registered domain name (e.g. "sbi" or "x89a-phish-23")
-    domain_ent = round(_shannon_entropy(domain_name), 4)
-
-    query_params = url_parsed.query.count("&") + (1 if url_parsed.query else 0)
-
-    path_lower = path.lower()
-    path_has_auth = 1 if any(kw in path_lower for kw in AUTH_KEYWORDS) else 0
-
-    consecutive_hyphens = 1 if "--" in domain else 0
-
-    # TLD keyword (.com, .gov, .org, .in) embedded inside subdomain
-    subdomain_str = ".".join(parts[:-1 - tld_parts_count]) if len(parts) > (1 + tld_parts_count) else ""
-    tld_in_sub = 1 if bool(re.search(r"(^|\.)(com|net|org|gov|edu|mil|in|co)(\.|$|-)", subdomain_str)) else 0
-
-    # Homoglyph substitution score in registered domain name
-    hg_count = sum(1 for c in domain_name if c in HOMOGLYPH_MAP)
-    homoglyph_score = round(hg_count / max(1, len(domain_name)), 4)
-
-    features = {
-        "url_length": url_len,
-        "domain_length": domain_len,
-        "dot_count": dot_count,
-        "has_ip": has_ip,
-        "is_https": is_https,
-        "suspicious_tld": suspicious_tld,
-        "brand_in_domain": brand_found,
-        "hyphen_count": hyphen_count,
-        "digit_ratio": round(digit_ratio, 4),
-        "directory_depth": depth,
-        "has_shortener": has_shortener,
-        "subdomain_count": subdomains,
-        "special_char_count": specials,
-        # v2 features
-        "has_at_symbol": has_at,
-        "has_double_slash_in_path": has_double_slash,
-        "is_punycode": is_punycode,
-        "domain_entropy": domain_ent,
-        "query_param_count": query_params,
-        "path_has_auth_keywords": path_has_auth,
-        "consecutive_hyphens": consecutive_hyphens,
-        "tld_in_subdomain": tld_in_sub,
-        "homoglyph_score": homoglyph_score,
+    return {
+        "url_length": len(norm),
+        "host_length": len(host),
+        "dot_count": norm.count("."),
+        "has_ip": int(bool(_IP_RE.match(host))),
+        "suspicious_tld": int(tld in SUSPICIOUS_TLDS or tld_last in SUSPICIOUS_TLDS),
+        "brand_impersonation": int(impersonated_brand(host) is not None),
+        "hyphen_count": host.count("-"),
+        "digit_ratio": round(sum(c.isdigit() for c in norm) / max(1, len(norm)), 4),
+        "directory_depth": len([s for s in path.split("/") if s]),
+        "has_shortener": int(host in SHORTENER_DOMAINS),
+        "subdomain_count": len(subs),
+        "special_char_count": sum(norm.count(c) for c in "@%=?&_!~"),
+        "has_at_symbol": int("@" in norm),
+        "has_double_slash_in_path": int("//" in path),
+        "is_punycode": int("xn--" in host),
+        "domain_entropy": round(_entropy(name), 4),
+        "query_param_count": (query.count("&") + 1) if query else 0,
+        "path_has_auth_keywords": int(any(k in (path + "?" + query).lower() for k in AUTH_KEYWORDS)),
+        "consecutive_hyphens": int("--" in host),
+        "tld_in_subdomain": int(bool(re.search(r"(^|[.\-])(com|net|org|gov|in)([.\-]|$)", sub_str))),
+        "homoglyph_score": round(sum(c in HOMOGLYPH_DIGITS for c in name) / max(1, len(name)), 4),
+        "free_hosting": int(is_shared_hosting(host)),
     }
-    return features
 
 
+def feature_vector(features: dict) -> list:
+    return [features[k] for k in FEATURE_NAMES]
+
+
+def explain_signals(url: str, f: dict) -> list:
+    p = normalise_url(url)
+    host = p["host"]
+    reg, _, tld = split_host(host)
+    s = []
+    if p["scheme"] == "http":
+        s.append("Uses plain HTTP, so the connection is not encrypted")
+    if f["has_ip"]:
+        s.append("Uses a raw IP address instead of a website name")
+    brand = impersonated_brand(host)
+    if brand:
+        s.append(f"Uses the name '{brand.upper()}' but {host} is not an official {brand.upper()} website")
+    if f["suspicious_tld"]:
+        s.append(f"Uses a cheap domain ending (.{tld}) that is common in scams")
+    if f["free_hosting"]:
+        s.append("Hosted on a free website-builder or file-sharing platform that anyone can use")
+    if f["has_shortener"]:
+        s.append("Shortened link that hides the real destination")
+    if f["has_at_symbol"]:
+        s.append("Contains an @ sign, a trick used to hide the real website")
+    if f["is_punycode"]:
+        s.append("Uses special look-alike characters in the website name")
+    if f["hyphen_count"] >= 2:
+        s.append("Website name is made of several hyphenated words, typical of fake sites")
+    if f["homoglyph_score"] > 0.15 and not f["has_ip"]:
+        s.append("Website name swaps letters for look-alike numbers (e.g. 0 for o)")
+    if f["subdomain_count"] >= 3 or f["tld_in_subdomain"]:
+        s.append("Long chain of sub-domains that can disguise the real website")
+    if f["path_has_auth_keywords"]:
+        s.append("Address contains words like login, verify, KYC or update")
+    if f["url_length"] > 100:
+        s.append("Unusually long address")
+    return s
+
+
+# ----------------------------------------------------------------------------- detector
 class URLDetector:
+    """Loads the stacked model bundle written by models/train_url_classifier.py."""
+
     def __init__(self, model_path: str = None):
-        self.model = None
+        self.bundle = None
         if model_path and os.path.exists(model_path):
-            self.model = joblib.load(model_path)
+            obj = joblib.load(model_path)
+            if isinstance(obj, dict) and "stacker" in obj:
+                self.bundle = obj
+        self.t_phish = self.bundle["threshold_phishing"] if self.bundle else 0.7
+        self.t_susp = self.bundle["threshold_suspicious"] if self.bundle else 0.45
+
+    def score(self, url: str, features: dict = None) -> float:
+        """Phishing probability from the stacked model (heuristic fallback if no model)."""
+        f = features or extract_url_features(url)
+        if self.bundle is None:
+            w = {"suspicious_tld": .3, "brand_impersonation": .4, "has_ip": .35, "has_shortener": .25,
+                 "has_at_symbol": .3, "is_punycode": .35, "free_hosting": .25, "path_has_auth_keywords": .15}
+            return float(min(0.99, 0.05 + sum(v for k, v in w.items() if f[k])))
+        norm = normalise_url(url)["norm"]
+        lr_p = self.bundle["char_lr"].predict_proba(self.bundle["vectorizer"].transform([norm]))[0, 1]
+        x = np.array([feature_vector(f) + [lr_p]], dtype=float)
+        return float(self.bundle["stacker"].predict_proba(x)[0, 1])
 
     def predict(self, url: str) -> dict:
-        features = extract_url_features(url)
-        signals = []
+        f = extract_url_features(url)
+        host = normalise_url(url)["host"]
+        signals = explain_signals(url, f)
+        if not host or ("." not in host and host != "localhost"):
+            return {"input_type": "URL", "input": url, "verdict": "SUSPICIOUS", "confidence": 0.5,
+                    "score": 0.5, "features": f, "signals": ["The address could not be read as a normal web link"]}
 
-        if features["is_https"] == 0:
-            signals.append("Insecure HTTP protocol (no SSL/TLS)")
-        if features["suspicious_tld"] == 1:
-            signals.append("Uses high-risk, cheap/free TLD frequently abused in scams")
-        if features["brand_in_domain"] == 1:
-            signals.append("Well-known brand name inside unofficial third-party domain")
-        if features["has_ip"] == 1:
-            signals.append("Uses bare IP address instead of registered domain name")
-        if features["has_shortener"] == 1:
-            signals.append("Uses URL shortener obscuring final destination")
-        if features["digit_ratio"] > 0.15:
-            signals.append(f"Unusually high digit ratio ({int(features['digit_ratio']*100)}%) in URL")
-        if features["hyphen_count"] >= 2:
-            signals.append("Multiple hyphens in domain, typical of domain spoofing")
-        if features["has_at_symbol"] == 1:
-            signals.append("Contains @ symbol in URL — classic redirect/credential harvesting trick")
-        if features["is_punycode"] == 1:
-            signals.append("Punycode/internationalized domain — may disguise lookalike characters")
-        if features["domain_entropy"] > 3.5:
-            signals.append(f"High domain entropy ({features['domain_entropy']:.2f}) — randomly-generated phishing domain")
-        if features["path_has_auth_keywords"] == 1:
-            signals.append("Path contains authentication/verification keywords (login, verify, kyc...)")
-        if features["consecutive_hyphens"] == 1:
-            signals.append("Double hyphens in domain — Punycode-style obfuscation or spoofing")
-        if features["tld_in_subdomain"] == 1:
-            signals.append("TLD keyword (.com/.gov/.in) embedded in subdomain — domain confusion technique")
-        if features["homoglyph_score"] > 0.1:
-            signals.append(f"Potential character substitution in domain (homoglyph score: {features['homoglyph_score']:.2f})")
+        p = self.score(url, f)
 
-        if self.model is not None:
-            feat_vector = np.array([[features[k] for k in FEATURE_NAMES]])
-            proba = self.model.predict_proba(feat_vector)[0]
-            phish_conf = float(proba[1]) if len(proba) > 1 else float(proba[0])
-        else:
-            score = 0
-            if features["is_https"] == 0: score += 0.2
-            if features["suspicious_tld"]: score += 0.35
-            if features["brand_in_domain"]: score += 0.4
-            if features["has_shortener"]: score += 0.25
-            if features["has_ip"]: score += 0.4
-            if features["has_at_symbol"]: score += 0.3
-            if features["is_punycode"]: score += 0.4
-            if features["domain_entropy"] > 3.5: score += 0.2
-            if features["path_has_auth_keywords"]: score += 0.15
-            phish_conf = min(0.99, max(0.01, score))
+        # Explainable rule layer on top of the model.
+        if f["brand_impersonation"]:
+            risky_host = f["suspicious_tld"] or f["free_hosting"] or f["has_ip"]
+            p = max(p, self.t_phish if risky_host else self.t_susp)
+        if f["has_shortener"]:
+            # Destination is unknown, not proven malicious: warn but don't call it phishing.
+            p = min(max(p, self.t_susp), self.t_phish - 1e-3)
 
-        # Clean Domain Profile Guard:
-        # A URL on a clean domain with ZERO structural anomalies, standard TLD,
-        # no brand impersonation, and normal entropy is NOT phishing just because
-        # it contains a normal authentication path (e.g. /login, /signin, /netbanking).
-        is_clean_profile = (
-            features["suspicious_tld"] == 0 and
-            features["brand_in_domain"] == 0 and
-            features["has_ip"] == 0 and
-            features["has_shortener"] == 0 and
-            features["has_at_symbol"] == 0 and
-            features["has_double_slash_in_path"] == 0 and
-            features["is_punycode"] == 0 and
-            features["consecutive_hyphens"] == 0 and
-            features["tld_in_subdomain"] == 0 and
-            features["digit_ratio"] < 0.10 and
-            features["domain_entropy"] < 3.20
-        )
-        if is_clean_profile:
-            phish_conf = min(phish_conf, 0.20)
-            signals = [s for s in signals if not s.startswith("Path contains authentication")]
+        official = official_brand(host)
+        if official:
+            # Allowlisted official domain: never call it phishing, but keep HTTP warning if any.
+            p = min(p, 0.05)
+            signals = [f"Official {official.upper() if len(official) < 12 else official} domain"] + \
+                      [s for s in signals if s.startswith("Uses plain HTTP")]
 
-        if phish_conf >= 0.70:
+        if p >= self.t_phish:
             verdict = "PHISHING"
-        elif phish_conf >= 0.45:
+        elif p >= self.t_susp:
             verdict = "SUSPICIOUS"
         else:
             verdict = "SAFE"
+        if verdict == "SAFE":
+            signals = [s for s in signals if not s.startswith("Address contains words")]
 
         return {
             "input_type": "URL",
             "input": url,
             "verdict": verdict,
-            "confidence": round(phish_conf if verdict != "SAFE" else 1.0 - phish_conf, 3),
-            "features": features,
-            "signals": signals
+            "score": round(p, 4),
+            "confidence": round(p if verdict != "SAFE" else 1.0 - p, 3),
+            "features": f,
+            "signals": signals,
         }

@@ -32,7 +32,7 @@ from shieldedge.decision_engine import DecisionEngine
 from shieldedge.storage import AlertLogger
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-URL_MODEL  = os.path.join(BASE_DIR, "models", "url_rf_model.joblib")
+URL_MODEL  = os.path.join(BASE_DIR, "models", "url_model.joblib")
 SMS_MODEL  = os.path.join(BASE_DIR, "models", "sms_pipeline.joblib")
 NET_MODEL  = os.path.join(BASE_DIR, "models", "network_isolation_forest.joblib")
 
