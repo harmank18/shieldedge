@@ -1,6 +1,7 @@
 # ShieldEdge demo video: storyboard (≤ 5 minutes)
 
-Record on the **Raspberry Pi 5** if it is ready. Otherwise record on the laptop and say so on screen.
+Record on the **Raspberry Pi 5**. It is set up and benchmarked; a Llama explanation takes about 8 s there
+(about 2.5 s to the first word).
 Use a large terminal font (≥ 18 pt) and a dark theme. Run every command once before recording so files are in
 the page cache. Narration lines are suggestions.
 
@@ -9,7 +10,7 @@ the page cache. Narration lines are suggestions.
 ```bash
 cd ~/shieldedge && source venv/bin/activate && unset PYTHONPATH
 python shieldedge.py --clear-logs          # start with an empty audit log
-nmcli radio wifi off                       # or unplug Ethernet (do this on camera in scene 1)
+sudo ip link set wlan0 down                # Ubuntu Server on the Pi (Pi OS/desktop: nmcli radio wifi off)
 ```
 
 ---

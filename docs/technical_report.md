@@ -30,7 +30,10 @@ traffic), the deployed system reaches:
 | Network | 0.759 | 1.7% | PortScan 99.9% detected; DDoS not detected per-flow |
 
 INT4 quantisation shrank the Llama program from 2.4 GB to 765 MB. On the development laptop, decode went from
-1.3 to 34 tokens/s, and a full explanation went from about 4.4 minutes to 3.8 s.
+1.3 to 34 tokens/s, and a full explanation went from about 4.4 minutes to 3.8 s. On a **Raspberry Pi 5** (4× Cortex-A76,
+ExecuTorch built natively with XNNPACK + KleidiAI), the same program explains a threat in 7.8 s at 14.5 tokens/s and
+uses 1.08 GB of RAM. A thread sweep showed that decoding on the Pi is memory-bound: 2 threads beat 4. A tcpdump
+capture recorded 0 packets during a full offline analysis.
 
 ## 2. Problem and motivation
 
@@ -191,8 +194,9 @@ variant all injection inputs keep their SCAM/PHISHING verdicts. The single rejec
 ## 6. Experimental results
 
 All results are from `models/evaluate_models.py`, `scripts/benchmark_llm.py` and `scripts/prompt_eval.py` on the
-development laptop: Intel Core i5-1235U (10 cores / 12 threads), 15 GB RAM, Ubuntu 24.04. **Raspberry Pi 5
-numbers are pending** and will be produced by `scripts/benchmark_device.sh`.
+development laptop (Intel Core i5-1235U, 10 cores / 12 threads, 15 GB RAM, Ubuntu 24.04) and on a **Raspberry Pi 5**
+(4× Cortex-A76 @ 2.4 GHz, 8 GB RAM, Ubuntu 24.04 arm64) via `scripts/benchmark_device.sh`. Detection quality is
+identical on both devices, because the models and rules are deterministic.
 
 **Table 1 – Detection quality** (positive = any warning; test data unseen in training and threshold selection)
 
@@ -227,14 +231,31 @@ INT4 explanations passed validation in 10/10 benchmark runs. The bf16 runs are a
 earlier few-shot prompt, and within 96 tokens they produced list-style text without complete sentences, which the
 cleaner discards.
 
-**Table 3 – Footprint and latency (laptop).**
+**Table 2b – The same INT4 program on the Raspberry Pi 5** (`llama_main` built natively for aarch64 with XNNPACK and
+Arm KleidiAI; 10 runs after warm-up, mean ± std)
 
-| Item | Value |
-|---|---|
-| Detector models | 5 MB total |
-| Per-input detection | URL and SMS a few ms, one network flow about 13 ms (exact values in `results/benchmarks.md`) |
-| Python process with all detectors loaded | about 240 MB RSS |
-| Llama runner | separate process, about 1.1 GB |
+| CPU threads | Load | TTFT | Prefill | Decode | Explanation | Peak RSS |
+|---|---|---|---|---|---|---|
+| 4 | 2.69 s | 1.68 ± 0.16 s | 116 ± 6 tok/s | 11.9 ± 0.1 tok/s | 8.1 ± 0.9 s | 1.08 GB |
+| **2 (default)** | 2.68 s | 2.54 ± 0.19 s | 76 ± 1 tok/s | 14.5 ± 0.5 tok/s | 7.8 ± 0.7 s | 1.08 GB |
+| 1 | 2.68 s | 4.52 ± 0.29 s | 43 ± 0 tok/s | 15.4 ± 0.3 tok/s | 9.5 ± 0.7 s | 1.08 GB |
+
+Prefill scales with threads, but decode does not: generating one token is a memory-bandwidth-bound
+matrix-vector pass, and on four A76 cores the extra synchronisation outweighs the extra compute. Two threads give
+the shortest end-to-end explanation, so the runner defaults to 2 threads on aarch64. In the prompt evaluation on
+the Pi, 17/19 explanations passed validation (laptop: 18/19). The two failures, an unsupported brand name and an
+empty list-style answer, were replaced by the template. There were 0 raw-input leaks.
+
+**Table 3 – Footprint and latency.**
+
+| Item | Laptop (i5-1235U) | Raspberry Pi 5 |
+|---|---|---|
+| Detector models | 5 MB total | same files |
+| Per-input detection (URL / SMS / one flow) | 7.0 / 2.8 / 13.0 ms | 7.0 / 4.3 / 24.2 ms |
+| Python process with all detectors loaded | about 240 MB RSS | 237 MB RSS |
+| Llama runner (separate process) | 1.08 GB peak | 1.08 GB peak |
+| Thermals after the full benchmark | – | 49.6 °C, never throttled (no fan) |
+| Offline proof (network down, tcpdump on all interfaces) | – | 0 packets, no sockets |
 
 ## 7. Limitations and future work
 
@@ -246,10 +267,11 @@ cleaner discards.
 - **Network:** per-flow detection misses DDoS and established botnet C2, which need cross-flow time-window features.
   Phase 1 has no live capture.
 - **LLM:** a 1B model's explanations can be generic. The validator is pattern-based.
-- **Benchmarks:** laptop only so far.
+- **Benchmarks:** the Pi ran on a USB-C phone charger and without an active cooler. It never throttled, but
+  explanations still take about 8 s, so faster decoding (e.g. 3-bit or QAT checkpoints) would improve the experience.
 
 **Phase 2**
-- Raspberry Pi 5 deployment and laptop-vs-Pi comparison (scripts ready).
+- Pin the Llama threads to separate cores and test speculative or shorter-prompt decoding on the Pi.
 - Live, permission-scoped capture with windowed flow features for DDoS/C2.
 - An Android front-end (share-intent for links, SMS reading with consent).
 - More Indian training data in Hindi, Marathi and Tamil.

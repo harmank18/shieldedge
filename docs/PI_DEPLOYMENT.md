@@ -5,9 +5,8 @@ Llama export) happens on the laptop. The Pi only builds the small C++ runner.
 
 ## 0. OS
 
-Use **64-bit** Raspberry Pi OS (Bookworm or newer) or Debian 12+ arm64. Both are
-Debian, so either works and there is no need to install Ubuntu. Check with
-`uname -m`, which must print `aarch64`. A Pi 5 with 4 GB RAM is enough (Llama
+**Tested on Ubuntu Server 24.04.5 LTS arm64 (Raspberry Pi 5, 8 GB).** 64-bit Raspberry Pi OS
+(Bookworm or newer) or Debian 12+ arm64 also work. Check with `uname -m`, which must print `aarch64`. A Pi 5 with 4 GB RAM is enough (Llama
 peaks at about 1.1 GB on the laptop); 8 GB gives more headroom. Use the active
 cooler or a heatsink, because the build and the benchmarks load all 4 cores.
 
@@ -39,7 +38,8 @@ architecture-independent: the laptop export runs unchanged on the Pi.
 This installs the apt packages, creates the venv, builds ExecuTorch v1.6.0's
 `llama_main` with XNNPACK (Arm KleidiAI kernels enabled by default) using
 `make llama-cpu`, and copies `llama_main` and `libllama_runner.so` into
-`executorch/`. The build takes roughly 30–60 minutes. If it stops on missing Python modules,
+`executorch/`. On our Pi 5 the build took 18 minutes. The build needs PyTorch's C++ headers and
+`torchgen` (build time only), which the script installs. If it stops on missing Python modules,
 run `cd ~/executorch && ./install_requirements.sh` and then re-run the script.
 
 ## 4. Smoke test
@@ -55,14 +55,15 @@ python shieldedge.py --flows data/samples/demo_flows.csv
 
 ```bash
 ./scripts/benchmark_device.sh                 # latency, Llama benchmark (10 runs), prompt eval, thermals
-nmcli radio wifi off                          # or unplug Ethernet
+sudo ip link set wlan0 down                   # Ubuntu Server (Pi OS desktop: nmcli radio wifi off)
 ./scripts/offline_proof.sh                    # ping fails, tcpdump shows 0 packets during inference
-nmcli radio wifi on
+sudo ip link set wlan0 up && sudo netplan apply
 git add results/ && git commit -m "Add Raspberry Pi 5 benchmark results"
 ```
 
 Detection *quality* (precision, recall and so on) depends only on the models,
-which are identical on both machines, so it is measured once on the laptop.
+which are identical on both machines. To re-measure it on the Pi, copy the gitignored
+`data/processed/` folder from the laptop first (`rsync -a data/processed <pi>:~/shieldedge/data/`).
 The Pi run adds per-input latency, Llama speed and memory, thermals, and the
 offline proof. These are labelled `raspberry-pi-5` automatically.
 
@@ -72,5 +73,7 @@ offline proof. These are labelled `raspberry-pi-5` automatically.
 |---|---|
 | `llama_main: error while loading shared libraries: libllama_runner.so` | Copy the `.so` next to `llama_main` (setup does this). The app also sets `LD_LIBRARY_PATH=executorch/`. |
 | Explanation falls back to the template | Check that `executorch/llama3_2_1b_int4.pte` and the tokenizer exist; run `executorch/llama_main --help`. |
-| Slow or throttled | `vcgencmd get_throttled` should print `0x0`. Improve cooling, or set `SHIELDEDGE_LLM_THREADS=4`. |
+| Slow or throttled | `vcgencmd get_throttled` (Pi OS) or `cat $(find /sys/devices/platform -name get_throttled)` (Ubuntu) should print 0. Use the official 27 W supply and a cooler. Threads default to 2 on Arm (fastest overall on the Pi 5); try `SHIELDEDGE_LLM_THREADS=4` for a faster first word. |
+| Pi stays on a solid red LED | Not enough power: use a USB-C supply of at least 5 V / 3 A (ideally the official 27 W one). |
+| Pi does not join an iPhone hotspot | Turn on *Maximize Compatibility* (2.4 GHz); the Pi may not see 5 GHz channel 149+. iPhone hotspot names use a curly apostrophe (’). |
 | Llama takes too long for the demo | `SHIELDEDGE_LLM_MAX_TOKENS=64` shortens explanations. `--fast` skips Llama entirely. |
