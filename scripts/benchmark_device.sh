@@ -35,10 +35,16 @@ python scripts/prompt_eval.py | tee "$OUT/prompt_eval.txt"
 {
   echo "## Storage footprint"
   du -sh models/*.joblib executorch/*.pte executorch/llama_main 2>/dev/null
+  echo "## Thermals after the run"
   if command -v vcgencmd >/dev/null; then
-    echo "## Pi thermals after the run"
     vcgencmd measure_temp
     vcgencmd get_throttled   # 0x0 = never throttled
+  else
+    # Ubuntu on the Pi has no vcgencmd: read the same values from sysfs.
+    [[ -r /sys/class/thermal/thermal_zone0/temp ]] &&
+      awk '{printf "temp=%.1f C\n", $1/1000}' /sys/class/thermal/thermal_zone0/temp
+    T="$(find /sys/devices/platform -name get_throttled 2>/dev/null | head -n1)"
+    [[ -n "$T" ]] && echo "throttled=0x$(cat "$T" 2>/dev/null)   (0x0 = never throttled)"
   fi
 } | tee "$OUT/system.txt"
 echo "Done. Commit $OUT and results/llm_benchmark_${SLUG}_*.{json,md}."

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# ShieldEdge - Raspberry Pi 5 setup (Raspberry Pi OS / Debian 12+ arm64)
+# ShieldEdge - Raspberry Pi 5 setup (Ubuntu 24.04 / Raspberry Pi OS / Debian 12+ arm64)
 #
 # What it does
 #   1. checks the board is 64-bit Arm, installs build and runtime packages
@@ -15,7 +15,7 @@
 #
 # Usage (on the Pi, from the repo root):   ./scripts/setup_pi.sh
 #   SKIP_BUILD=1 ./scripts/setup_pi.sh     # Python part only
-# Build time on a Pi 5 is roughly 30-60 min. Use a fan/heatsink.
+# Build time on a Pi 5 (8 GB, Ubuntu 24.04) was 18 min with 4 jobs. Use a fan/heatsink.
 # ==============================================================================
 set -euo pipefail
 
@@ -53,7 +53,13 @@ if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
   cd "$ET_DIR"
   git submodule sync && git submodule update --init --recursive --depth 1
   # Build-time Python helpers used by ExecuTorch's code generation.
-  pip install pyyaml ruamel.yaml tomli zstd setuptools
+  pip install pyyaml ruamel.yaml tomli setuptools
+  # The CMake build also reads PyTorch's C++ headers and torchgen (build time only;
+  # ShieldEdge never imports torch at run time). CPU wheel, same version as the export.
+  python -c "import torch" 2>/dev/null ||
+    pip install "torch==2.15.0" --index-url https://download.pytorch.org/whl/cpu ||
+    pip install torch
+  export PYTHON_EXECUTABLE="$(command -v python)"
   # Leave one core free so the Pi stays responsive and does not overheat.
   export CMAKE_BUILD_PARALLEL_LEVEL="${JOBS:-3}"
   if ! make llama-cpu; then
