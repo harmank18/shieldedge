@@ -11,9 +11,9 @@ Code: https://github.com/harmank18/shieldedge (branch `harman-devs`) · November
 
 ShieldEdge is an offline security assistant that checks web links, SMS messages and network flows on the device
 itself. Three small classical detectors decide the verdict in milliseconds:
-- a stacked character-n-gram and structural model for URLs;
-- a calibrated linear SVM with explainable rules for SMS;
-- an Isolation Forest for flows.
+- a stacked character/word-n-gram and structural model for URLs;
+- a calibrated linear SVM over word and character n-grams, with explainable rules, for SMS;
+- a k-nearest-neighbour novelty detector, trained on benign traffic only, for flows.
 
 Only when something is flagged does an INT4-quantised **Llama 3.2 1B-Instruct**, deployed with **ExecuTorch**
 and the XNNPACK delegate, turn the detector evidence into a plain-language explanation. Remediation steps come
@@ -25,9 +25,9 @@ traffic), the deployed system reaches:
 
 | Detector | F1 | FPR | Notes |
 |---|---|---|---|
-| URL | 0.930 | 1.5% | |
-| SMS | 0.923 | 1.0% | |
-| Network | 0.759 | 1.7% | PortScan 99.9% detected; DDoS not detected per-flow |
+| URL | 0.944 | 4.0% | 0.8% FPR at the strict PHISHING level (precision 98.4%) |
+| SMS | 0.958 | 0.6% | UCI held-out |
+| Network | 0.980 | 2.5% | DDoS, botnet C2 and PortScan all ≥ 99.6% detected |
 
 INT4 quantisation shrank the Llama program from 2.4 GB to 765 MB. On the development laptop, decode went from
 1.3 to 34 tokens/s, and a full explanation went from about 4.4 minutes to 3.8 s. On a **Raspberry Pi 5** (4× Cortex-A76,
@@ -81,8 +81,8 @@ REST API bound to 127.0.0.1. Users can mark an alert as safe, and `--clear-logs`
 - **Normalisation.** We lower-case the URL and strip the scheme and `www.`. The Mitake corpus stores URLs without
   a scheme, so a feature like "is HTTPS" would be constant in training but always set in real use. Normalising
   removes that train/serve skew. HTTPS remains an explanation signal only. Parsing never raises an exception.
-- **Two views.** The first is character 3–5-gram TF-IDF fed to logistic regression, which learns the lexical shape
-  of phishing URLs. The second is 22 structural features: length, dot and hyphen counts, digit ratio, IP host,
+- **Two views.** The first is character 3–5-gram plus word 1–2-gram TF-IDF fed to logistic regression, which learns
+  the lexical shape of phishing URLs and tell-tale tokens (`login`, `secure`, brand names). The second is 22 structural features: length, dot and hyphen counts, digit ratio, IP host,
   risky TLD, brand misuse, entropy, punycode, `@`, sub-domain depth, auth keywords, look-alike digits, and free
   hosting. A HistGradientBoosting model stacks both. Its LR input is produced out-of-fold with GroupKFold, so there
   is no stacking leakage.
@@ -91,12 +91,17 @@ REST API bound to 127.0.0.1. Users can mark an alert as safe, and `--clear-logs`
   brand token appears but the registered domain is not official, and it raises the score: to PHISHING on a risky
   host, otherwise to SUSPICIOUS. Shorteners are capped at SUSPICIOUS because their destination is unknown, not
   proven bad.
-- **Data and split.** 225k de-duplicated Mitake URLs (2:1 benign:phishing), **split by registered domain** into
-  70/10/20. A random split had 52% of test rows sharing a domain with training. Thresholds are chosen on the
-  validation split: PHISHING at 1% validation FPR, SUSPICIOUS at 4%.
+- **Data and split.** De-duplicated Mitake URLs with **at most 50 URLs per registered domain**, assigned to
+  train/validation/test (70/10/20) by a **fixed hash of the registered domain**. A random split had 52% of test rows
+  sharing a domain with training. Without the cap, one ad-tracking domain (`doubleclick.net`, about 3,000
+  near-identical URLs) moved the test FPR by about 5 points depending on its split. Training uses 315k URLs (2:1),
+  and the test set has 122k URLs from 67k websites. On validation, doubling the data and adding word n-grams raised
+  recall at 1% FPR from 0.816 to 0.858. Thresholds are chosen on validation: PHISHING at 1% FPR, SUSPICIOUS at 4%.
 
 ### 4.2 SMS scam detector
-- **Model.** TF-IDF word 1–3-grams with LinearSVC and 5-fold sigmoid calibration. It is trained on the UCI SMS
+- **Model.** TF-IDF word 1–2-grams plus character 2–5-grams with LinearSVC and 5-fold sigmoid calibration. In 5-fold
+  cross-validation on the training split, character n-grams raised F1 from 0.935 to 0.959, because they catch
+  obfuscations such as `fr33`, `c1aim` and `£1000`. It is trained on the UCI SMS
   Spam Collection, **de-duplicated before splitting** (403 exact duplicates had leaked into the test set), plus 70
   team-authored Indian messages.
 - **Rules.** UCI's "ham" is UK personal chat from 2011, so the raw model flagged genuine Indian bank alerts. We
@@ -113,9 +118,15 @@ REST API bound to 127.0.0.1. Users can mark an alert as safe, and `--clear-logs`
 - **Input.** CICFlowMeter-style flow records (`--flows file.csv`), which is the format of CIC-IDS-2017. We use 18
   statistics: duration, packet and byte counts and rates, port, protocol, TCP flag counts, mean packet lengths,
   inter-arrival time, and initial window.
-- **Model.** log1p, then standardisation, then Isolation Forest, trained on 60k **benign Monday** flows.
-  Thresholds are the 98th and 99th percentiles of the anomaly score on 20k held-out benign flows. **No attack
-  labels are used** for training or tuning.
+- **Model.** log1p, then standardisation, then a **k-nearest-neighbour novelty score**: the mean distance to the 20
+  closest of 20k **benign Monday** reference flows. Thresholds are the 98th and 99th percentiles of that score on
+  20k held-out benign flows. **No attack labels are used** for training or tuning.
+- **Why kNN.** The previous Isolation Forest caught 0% of DDoS and 1.5% of botnet C2 flows. Those flows have
+  ordinary values feature by feature, so axis-aligned random splits do not isolate them. No benign flow has the same
+  *combination* of values, and the nearest-neighbour distance measures exactly that. Only Monday (benign) and Friday
+  (attacks) exist in this copy, so the two models were compared on Friday; both results are reported. As a
+  robustness check, removing any one of the 18 features keeps DDoS detection at 100%. This includes the TCP initial
+  window, a known CIC-IDS-2017 artefact. Botnet detection does lean on the C2 port (8080).
 - **Test on a different day.** Friday benign flows plus Friday attacks (DDoS, PortScan, Botnet). Earlier versions
   tested on Monday benign flows, which inflated F1 to 0.986.
 - **Rules.** These add signals: an immediately reset short connection (scan), a known remote-access port, extreme
@@ -202,21 +213,25 @@ identical on both devices, because the models and rules are deterministic.
 
 | Task | Test set | n (threats) | Precision | Recall | F1 | FPR | AUC |
 |---|---|---|---|---|---|---|---|
-| URL | Mitake, unseen domains | 40,548 (13,614) | 96.7% | 89.6% | 0.930 | 1.5% | 0.989 |
-| URL | India challenge set* | 65 (30) | 96.8% | 100% | 0.984 | 2.9% | 1.000 |
-| SMS | UCI, de-duplicated | 1,034 (131) | 93.0% | 91.6% | 0.923 | 1.0% | 0.992 |
-| SMS | India test set* | 60 (30) | 93.8% | 100% | 0.968 | 6.7% | 0.996 |
-| Network | CIC-IDS-2017 Friday | 32,736 (12,736) | 95.9% | 62.9% | 0.759 | 1.7% | 0.970 |
+| URL | Mitake, unseen domains (≤ 50/site) | 122,149 (43,265) | 92.9% | 95.9% | 0.944 | 4.0% | 0.992 |
+| URL | same, PHISHING verdicts only | 122,149 (43,265) | 98.4% | 89.2% | 0.936 | 0.8% | – |
+| URL | India challenge set* | 65 (30) | 90.9% | 100% | 0.952 | 8.6% | 0.998 |
+| SMS | UCI, de-duplicated | 1,034 (131) | 96.2% | 95.4% | 0.958 | 0.6% | 0.999 |
+| SMS | India test set* | 60 (30) | 90.9% | 100% | 0.952 | 10.0% | 0.984 |
+| Network | CIC-IDS-2017 Friday | 32,736 (12,736) | 96.2% | 99.9% | 0.980 | 2.5% | 0.992 |
+
+**Baselines on the same test sets.** URL, previous configuration (char n-grams only, half the training data):
+F1 0.939, recall 94.9%, FPR 4.0%. Network, previous Isolation Forest: F1 0.759, recall 62.9%, FPR 1.7%.
 
 \* Small, team-curated sets. The India URL phishing rows are synthetic, modelled on reported campaigns. These are
 sanity checks only.
 
-**Network detection by label:** PortScan 99.9%, Botnet-Attempted 100%, Botnet 1.5%, DDoS 0.0% (benign false
-alarms: 1.7%).
+**Network detection by label:** DDoS 100%, Botnet 100%, Botnet-Attempted 100%, PortScan 99.6% (benign false
+alarms: 2.5%). The Isolation Forest baseline: DDoS 0%, Botnet 1.5%.
 
 **Effect of fixing the evaluation** (same Mitake data, structural-feature model): F1 went from 0.843 to 0.774 and
-FPR from 4.3% to 11.5% when moving from a random to a domain-grouped split. The new stacked model recovers
-F1 0.930 at 1.5% FPR *on the grouped split*.
+FPR from 4.3% to 11.5% when moving from a random to a domain-grouped split. The stacked model reaches
+F1 0.944 at 4.0% FPR (0.8% at the PHISHING level) on the capped, hash-grouped split.
 
 **Table 2 – Llama 3.2 1B-Instruct via ExecuTorch on the laptop** (10 runs after warm-up, mean ± std)
 
@@ -250,9 +265,9 @@ empty list-style answer, were replaced by the template. There were 0 raw-input l
 
 | Item | Laptop (i5-1235U) | Raspberry Pi 5 |
 |---|---|---|
-| Detector models | 5 MB total | same files |
-| Per-input detection (URL / SMS / one flow) | 7.0 / 2.8 / 13.0 ms | 7.0 / 4.3 / 24.2 ms |
-| Python process with all detectors loaded | about 240 MB RSS | 237 MB RSS |
+| Detector models | 10 MB total | same files |
+| Per-input detection (URL / SMS / one flow) | 5.5 / 3.4 / 11.6 ms | 8.0 / 5.5 / 10.4 ms |
+| Python process with all detectors loaded | about 320 MB RSS | 315 MB RSS |
 | Llama runner (separate process) | 1.08 GB peak | 1.08 GB peak |
 | Thermals after the full benchmark | – | 49.6 °C, never throttled (no fan) |
 | Offline proof (network down, tcpdump on all interfaces) | – | 0 packets, no sockets |
@@ -262,10 +277,12 @@ empty list-style answer, were replaced by the template. There were 0 raw-input l
 **Limitations**
 - **URL:** analysis is lexical only and offline (no WHOIS, content or blocklist). It can be evaded by phishing on
   reputable shared platforms. The allowlist needs maintenance.
-- **SMS:** Indian coverage relies on a small, team-authored set. Two genuine India test messages (an OTP format and
-  a delivery notice) are false positives. Native-script regional languages are not modelled.
-- **Network:** per-flow detection misses DDoS and established botnet C2, which need cross-flow time-window features.
-  Phase 1 has no live capture.
+- **SMS:** Indian coverage relies on a small, team-authored set. Three of the 30 genuine India test messages are
+  false positives (two before the character-n-gram change). Native-script regional
+  languages are not modelled.
+- **Network:** trained and tested on one testbed (CIC-IDS-2017). The 2.5% benign alarm rate and the botnet result,
+  which relies on the C2 port, need validation on other networks. This copy of the data has no usable timestamps,
+  so timing features are not used. Phase 1 has no live capture.
 - **LLM:** a 1B model's explanations can be generic. The validator is pattern-based.
 - **Benchmarks:** the Pi ran on a USB-C phone charger and without an active cooler. It never throttled, but
   explanations still take about 8 s, so faster decoding (e.g. 3-bit or QAT checkpoints) would improve the experience.
