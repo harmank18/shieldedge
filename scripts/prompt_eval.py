@@ -71,7 +71,7 @@ def main():
         sys.exit("ExecuTorch runner/model missing")
     engine = DecisionEngine()
     u, s, n = URLDetector(f"{M}/url_model.joblib"), SMSDetector(f"{M}/sms_pipeline.joblib"), \
-        NetworkDetector(f"{M}/network_isolation_forest.joblib")
+        NetworkDetector(f"{M}/network_model.joblib")
     inputs = [("URL", x, u.predict(x)) for x in URLS] + [("SMS", x, s.predict(x)) for x in SMS] + \
              [("FLOW", json.dumps(x), n.predict_flow(x)) for x in FLOWS]
 

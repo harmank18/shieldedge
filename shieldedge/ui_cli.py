@@ -27,7 +27,7 @@ from shieldedge.url_detector import URLDetector
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 URL_MODEL_PATH = os.path.join(BASE_DIR, "models", "url_model.joblib")
 SMS_MODEL_PATH = os.path.join(BASE_DIR, "models", "sms_pipeline.joblib")
-NET_MODEL_PATH = os.path.join(BASE_DIR, "models", "network_isolation_forest.joblib")
+NET_MODEL_PATH = os.path.join(BASE_DIR, "models", "network_model.joblib")
 
 RED, YELLOW, GREEN, DIM, BOLD, RESET = "\033[91m", "\033[93m", "\033[92m", "\033[2m", "\033[1m", "\033[0m"
 if not sys.stdout.isatty() or os.environ.get("NO_COLOR"):

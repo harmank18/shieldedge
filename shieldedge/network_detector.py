@@ -4,10 +4,13 @@ Network flow anomaly detector for ShieldEdge.
   * Input: bidirectional flow records as produced by CICFlowMeter (the tool
     behind CIC-IDS-2017) - either a CSV (`predict_csv`) or a single dict
     (`predict_flow`). No packet capture happens in Phase 1.
-  * Model: Isolation Forest on log1p-scaled, standardised flow statistics,
-    trained only on *benign* traffic (CIC-IDS-2017 Monday). Thresholds are
-    percentiles of the anomaly score on held-out benign flows, so no attack
-    labels are used for training or tuning.
+  * Model: k-nearest-neighbour novelty detection on log1p-scaled,
+    standardised flow statistics. The anomaly score is the mean distance to the
+    k closest flows in a reference set of *benign* traffic (CIC-IDS-2017 Monday).
+    Thresholds are percentiles of that score on held-out benign flows, so no
+    attack labels are used for training or tuning. kNN replaced an Isolation
+    Forest, which missed DDoS and botnet C2 flows: their individual statistics
+    are ordinary, but no normal flow has the same *combination* of them.
   * Rules add plain-language signals (scan-like resets, remote-access ports,
     very high packet rates, large uploads). A known remote-access port can
     raise a flow to SUSPICIOUS but never to ANOMALY on its own.
@@ -21,6 +24,8 @@ import re
 import joblib
 import numpy as np
 import pandas as pd
+from sklearn.base import BaseEstimator
+from sklearn.neighbors import NearestNeighbors
 
 FLOW_FEATURE_NAMES = [
     "duration", "total_fwd_packets", "total_bwd_packets", "total_fwd_bytes", "total_bwd_bytes",
@@ -55,6 +60,29 @@ REMOTE_ACCESS_PORTS = {4444: "Metasploit/remote shell", 1337: "backdoor", 31337:
 def log1p_clip(X):
     """Log-scale heavy-tailed flow statistics (module-level so the model pickles)."""
     return np.log1p(np.clip(np.asarray(X, dtype=float), 0, None))
+
+
+class KNNNovelty(BaseEstimator):
+    """Novelty score = minus the mean distance to the k nearest benign reference flows.
+
+    Follows the sklearn convention of score_samples (higher = more normal), so it can be
+    the last step of a Pipeline. Fitted on benign data only.
+    """
+
+    def __init__(self, n_neighbors: int = 20, n_reference: int = 20_000, random_state: int = 0):
+        self.n_neighbors = n_neighbors
+        self.n_reference = n_reference
+        self.random_state = random_state
+
+    def fit(self, X, y=None):
+        X = np.asarray(X, dtype=float)
+        if len(X) > self.n_reference:
+            X = X[np.random.RandomState(self.random_state).choice(len(X), self.n_reference, replace=False)]
+        self.nn_ = NearestNeighbors(n_neighbors=self.n_neighbors).fit(X)
+        return self
+
+    def score_samples(self, X):
+        return -self.nn_.kneighbors(np.asarray(X, dtype=float))[0].mean(axis=1)
 
 
 def _norm_col(c: str) -> str:

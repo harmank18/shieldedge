@@ -1,7 +1,7 @@
 """
 Build the ShieldEdge network datasets from CIC-IDS-2017 (bvk/CICIDS-2017 on Hugging Face).
 
-  net_train.csv    60,000 benign flows from Monday          -> Isolation Forest training
+  net_train.csv    60,000 benign flows from Monday          -> benign reference set for the kNN novelty model
   net_holdout.csv  20,000 other benign flows from Monday    -> score thresholds (benign only)
   net_test.csv     20,000 benign flows from *Friday* + up to 4,000 flows of each Friday
                    attack class (DDoS, PortScan, Botnet, Botnet - Attempted)
