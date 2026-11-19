@@ -156,13 +156,13 @@ def main():
     llm_files = sorted(glob.glob(os.path.join(RESULTS, "llm_benchmark_*.json")))
     if llm_files:
         md += ["", "## On-device Llama (ExecuTorch)", "",
-               "| Device | Program | Load (ms) | TTFT (ms) | Prefill (tok/s) | Decode (tok/s) | Explanation total (ms) | Peak RSS (MB) |",
-               "|---|---|---|---|---|---|---|---|"]
+               "| Device | Program | Threads | Load (ms) | TTFT (ms) | Prefill (tok/s) | Decode (tok/s) | Explanation total (ms) | Peak RSS (MB) |",
+               "|---|---|---|---|---|---|---|---|---|"]
         for path in llm_files:
             b = json.load(open(path))
             s = b["summary"]
             f = lambda k: f"{s[k]['mean']:.1f} ± {s[k]['std']:.1f}"  # noqa: E731
-            md.append(f"| {b['device']['device']} | {b['program']} | {f('model_load_ms')} | {f('ttft_ms')} | "
+            md.append(f"| {b['device']['device']} | {b['program']} | {b.get('cpu_threads', 'runner default')} | {f('model_load_ms')} | {f('ttft_ms')} | "
                       f"{f('prefill_tok_s')} | {f('decode_tok_s')} | {f('generation_ms')} | {f('peak_rss_mb')} |")
         md += ["", "From `scripts/benchmark_llm.py` (mean ± std over all runs; see the JSON files for raw data)."]
     with open(os.path.join(RESULTS, "benchmarks.md"), "w") as fh:

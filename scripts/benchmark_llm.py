@@ -31,7 +31,7 @@ sys.path.insert(0, BASE_DIR)
 from shieldedge.decision_engine import DecisionEngine  # noqa: E402
 from shieldedge.device import device_info, device_slug  # noqa: E402
 from shieldedge.llama_runner import (ASSISTANT_MARKER, ET_DIR, MAX_NEW_TOKENS, LlamaAdvisoryRunner,  # noqa: E402
-                                     clean_llm_text, parse_observer, validate_explanation)
+                                     clean_llm_text, llm_threads, parse_observer, validate_explanation)
 from shieldedge.prompt_constructor import construct_prompt  # noqa: E402
 
 CASES = [
@@ -63,6 +63,8 @@ def run_once(runner, prompt, max_new_tokens):
     env["LD_LIBRARY_PATH"] = f"{ET_DIR}:{env.get('LD_LIBRARY_PATH', '')}"
     cmd = [runner.executorch_runner_bin, "--model_path", runner.pte_model_path, "--tokenizer_path",
            runner.tokenizer_path, "--prompt_file", ppath, "--max_new_tokens", str(max_new_tokens), "--temperature", "0"]
+    if llm_threads():  # same rule as LlamaAdvisoryRunner.run_llm
+        cmd += ["--cpu_threads", llm_threads()]
     peak = [0]
     t0 = time.perf_counter()
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env)
@@ -93,7 +95,11 @@ def main():
     ap.add_argument("--runs", type=int, default=10)
     ap.add_argument("--pte", default=None, help="ExecuTorch program (default: same as the app)")
     ap.add_argument("--max-new-tokens", type=int, default=MAX_NEW_TOKENS)
+    ap.add_argument("--threads", type=int, default=None,
+                    help="CPU threads for llama_main (default: the app's setting); adds a _t<N> suffix to the output")
     args = ap.parse_args()
+    if args.threads:
+        os.environ["SHIELDEDGE_LLM_THREADS"] = str(args.threads)
 
     runner = LlamaAdvisoryRunner(pte_model_path=args.pte)
     if not runner.has_executorch:
@@ -125,17 +131,20 @@ def main():
         "device": info, "program": runner.model_name,
         "program_size_mb": round(os.path.getsize(runner.pte_model_path) / 2**20),
         "max_new_tokens": args.max_new_tokens, "runs": len(runs), "date": time.strftime("%Y-%m-%d %H:%M"),
+        "cpu_threads": llm_threads() or "runner default",
         "validation_pass_rate": sum(r["valid"] for r in runs) / len(runs),
         "summary": summary, "raw": runs,
     }
     os.makedirs(os.path.join(BASE_DIR, "results"), exist_ok=True)
-    stem = os.path.join(BASE_DIR, "results", f"llm_benchmark_{device_slug()}_{runner.model_name.replace('.pte', '')}")
+    stem = os.path.join(BASE_DIR, "results", f"llm_benchmark_{device_slug()}_{runner.model_name.replace('.pte', '')}"
+                        + (f"_t{args.threads}" if args.threads else ""))
     with open(stem + ".json", "w") as f:
         json.dump(result, f, indent=2)
 
     lines = [f"# Llama 3.2 1B-Instruct on {info['device']}", "",
              f"Program `{runner.model_name}` ({result['program_size_mb']} MB), ExecuTorch `llama_main` + XNNPACK, "
-             f"greedy decoding, up to {args.max_new_tokens} new tokens, {len(runs)} runs after one warm-up "
+             f"greedy decoding, CPU threads: {result['cpu_threads']}, "
+             f"up to {args.max_new_tokens} new tokens, {len(runs)} runs after one warm-up "
              f"({result['date']}, {info['arch']}, {info['cpus']} CPUs, {info['ram_gb']} GB RAM).", "",
              "| Metric | Mean | Std |", "|---|---|---|"]
     for k in keys:

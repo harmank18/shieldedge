@@ -39,6 +39,22 @@ MAX_NEW_TOKENS = int(os.environ.get("SHIELDEDGE_LLM_MAX_TOKENS", "96"))
 MAX_STREAM_SENTENCES = 4  # keep in sync with clean_llm_text(max_sentences)
 TIMEOUT_S = int(os.environ.get("SHIELDEDGE_LLM_TIMEOUT", "120"))
 
+
+def llm_threads():
+    """CPU threads passed to llama_main, or None for the runner's own default.
+
+    SHIELDEDGE_LLM_THREADS overrides. On 64-bit Arm the default is 2: on the
+    Raspberry Pi 5 (4x Cortex-A76) decode is memory-bound and runs faster with
+    2 threads than 4 (14.9 vs 11.9 tok/s), which outweighs the slower prefill
+    (results/llm_benchmark_raspberry-pi-5_*_t{1,2,4}.json).
+    """
+    env = os.environ.get("SHIELDEDGE_LLM_THREADS")
+    if env:
+        return env
+    import platform
+
+    return "2" if platform.machine() in ("aarch64", "arm64") else None
+
 _URL_RE = re.compile(r"https?://|www\.|\b[a-z0-9-]+\.(com|in|xyz|top|net|org|info)\b", re.I)
 _PHONE_RE = re.compile(r"\b\d{6,}\b")
 _EMAIL_RE = re.compile(r"\S+@\S+\.\S+")
@@ -161,7 +177,7 @@ class LlamaAdvisoryRunner:
             "--max_new_tokens", str(max_new_tokens),
             "--temperature", "0",
         ]
-        threads = os.environ.get("SHIELDEDGE_LLM_THREADS")
+        threads = llm_threads()
         if threads:
             cmd += ["--cpu_threads", threads]
 
