@@ -7,8 +7,11 @@ Data  : UCI SMS Spam Collection (exact duplicates removed *before* splitting -
         clearly marked; the separate india_sms_test.csv is never used here).
 Split : stratified 80/20 on the de-duplicated UCI data. The UCI test part and
         the curated India test set are evaluated separately by evaluate_models.py.
-Model : TF-IDF (word 1-3-grams, sublinear tf) + LinearSVC with sigmoid
-        calibration (CalibratedClassifierCV, 5 folds) so outputs are probabilities.
+Model : TF-IDF word 1-2-grams + character 2-5-grams (char_wb, catches obfuscations
+        such as "fr33", "c1aim", "£1000") -> LinearSVC with sigmoid calibration
+        (CalibratedClassifierCV, 5 folds) so outputs are probabilities.
+        Chosen by 5-fold CV on the training split only: F1 0.935 (word 1-3-grams)
+        -> 0.959 (word + char), AUC 0.991 -> 0.994.
 Out   : models/sms_pipeline.joblib, data/processed/sms_test.csv
 
 Run: python models/train_sms_classifier.py
@@ -24,7 +27,7 @@ import sklearn
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.model_selection import train_test_split
-from sklearn.pipeline import Pipeline
+from sklearn.pipeline import FeatureUnion, Pipeline
 from sklearn.svm import LinearSVC
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -52,7 +55,10 @@ def main():
           f"({(train.label == 'spam').mean():.1%} spam) | UCI test: {len(test_uci)}")
 
     pipeline = Pipeline([
-        ("tfidf", TfidfVectorizer(ngram_range=(1, 3), min_df=1, max_features=20000, sublinear_tf=True)),
+        ("tfidf", FeatureUnion([
+            ("word", TfidfVectorizer(ngram_range=(1, 2), max_features=20000, sublinear_tf=True)),
+            ("char", TfidfVectorizer(analyzer="char_wb", ngram_range=(2, 5), min_df=2, sublinear_tf=True)),
+        ])),
         ("clf", CalibratedClassifierCV(LinearSVC(C=1.0, class_weight="balanced"), cv=5, method="sigmoid")),
     ])
     pipeline.fit(train.message.astype(str).map(preprocess_text), (train.label == "spam").astype(int))
