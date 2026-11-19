@@ -1,0 +1,13 @@
+Benchmarking llama3_2_1b_int4.pte on Raspberry Pi 5 Model B Rev 1.0 (10 runs, warm-up run discarded)
+  run  1: TTFT   2809 ms | prefill   76.2 tok/s | decode  13.7 tok/s | RSS   1076 MB | valid=True
+  run  2: TTFT   2641 ms | prefill   73.8 tok/s | decode  14.2 tok/s | RSS   1076 MB | valid=True
+  run  3: TTFT   2304 ms | prefill   77.7 tok/s | decode  13.7 tok/s | RSS   1074 MB | valid=True
+  run  4: TTFT   2476 ms | prefill   77.1 tok/s | decode  14.6 tok/s | RSS   1077 MB | valid=True
+  run  5: TTFT   2477 ms | prefill   76.3 tok/s | decode  14.6 tok/s | RSS   1077 MB | valid=True
+  run  6: TTFT   2863 ms | prefill   74.7 tok/s | decode  14.4 tok/s | RSS   1076 MB | valid=True
+  run  7: TTFT   2572 ms | prefill   75.8 tok/s | decode  14.9 tok/s | RSS   1076 MB | valid=True
+  run  8: TTFT   2344 ms | prefill   76.4 tok/s | decode  14.9 tok/s | RSS   1075 MB | valid=True
+  run  9: TTFT   2424 ms | prefill   78.8 tok/s | decode  14.6 tok/s | RSS   1074 MB | valid=True
+  run 10: TTFT   2451 ms | prefill   77.1 tok/s | decode  15.1 tok/s | RSS   1077 MB | valid=True
+
+Mean TTFT 2536 ms, decode 14.5 tok/s, peak RSS 1076 MB -> /home/harman/shieldedge/results/llm_benchmark_raspberry-pi-5_llama3_2_1b_int4.json/.md

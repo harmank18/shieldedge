@@ -1,0 +1,197 @@
+{
+  "device": {
+    "device": "Raspberry Pi 5 Model B Rev 1.0",
+    "arch": "aarch64",
+    "cpus": 4,
+    "ram_gb": 7.8,
+    "os": "Linux-6.8.0-1064-raspi-aarch64-with-glibc2.39",
+    "python": "3.12.3"
+  },
+  "program": "llama3_2_1b_int4.pte",
+  "program_size_mb": 765,
+  "max_new_tokens": 96,
+  "runs": 10,
+  "date": "2026-11-19 11:31",
+  "cpu_threads": "1",
+  "validation_pass_rate": 1.0,
+  "summary": {
+    "model_load_ms": {
+      "mean": 2680.7,
+      "std": 24.98021439281719
+    },
+    "ttft_ms": {
+      "mean": 4515.1,
+      "std": 291.10229206319286
+    },
+    "prefill_tok_s": {
+      "mean": 42.88322,
+      "std": 0.1464441858031771
+    },
+    "decode_tok_s": {
+      "mean": 15.40439,
+      "std": 0.277302019265798
+    },
+    "generation_ms": {
+      "mean": 9484.9,
+      "std": 724.8655737445392
+    },
+    "wall_ms": {
+      "mean": 12406.474547699987,
+      "std": 733.0266344349692
+    },
+    "peak_rss_mb": {
+      "mean": 1075.27578125,
+      "std": 1.4089795558033746
+    },
+    "prompt_tokens": {
+      "mean": 193.6,
+      "std": 12.103259432437564
+    },
+    "generated_tokens": {
+      "mean": 76.4,
+      "std": 11.673331429659088
+    }
+  },
+  "raw": [
+    {
+      "model_load_ms": 2696,
+      "ttft_ms": 4995,
+      "generation_ms": 9407,
+      "prefill_tok_s": 42.8428,
+      "decode_tok_s": 15.4125,
+      "prompt_tokens": 214,
+      "generated_tokens": 68,
+      "wall_ms": 12345.454951999955,
+      "peak_rss_mb": 1076.859375,
+      "case": 0,
+      "valid": true,
+      "explanation": "This link was flagged because it uses plain HTTP, which is not secure. The link also uses the name \"SBI\" but the actual domain is not an official SBI website, which is also suspicious. Additionally, the link uses a cheap domain ending (.xyz) that is commonly used in scams, which is a clear indication of phishing activity."
+    },
+    {
+      "model_load_ms": 2700,
+      "ttft_ms": 4563,
+      "generation_ms": 8665,
+      "prefill_tok_s": 42.735,
+      "decode_tok_s": 15.6021,
+      "prompt_tokens": 195,
+      "generated_tokens": 64,
+      "wall_ms": 11613.447091000013,
+      "peak_rss_mb": 1073.63671875,
+      "case": 1,
+      "valid": true,
+      "explanation": "This message was flagged because it contains a bank (SBI) and government (KYC) reference, which are known red flags for scams. The presence of a link to a website that pretends to be a legitimate SBI website (SBI-KYC-Verify.TOP) is also a strong indication of a scam."
+    },
+    {
+      "model_load_ms": 2663,
+      "ttft_ms": 4159,
+      "generation_ms": 9629,
+      "prefill_tok_s": 43.0392,
+      "decode_tok_s": 14.9909,
+      "prompt_tokens": 179,
+      "generated_tokens": 82,
+      "wall_ms": 12531.635196000025,
+      "peak_rss_mb": 1075.171875,
+      "case": 2,
+      "valid": true,
+      "explanation": "This message was flagged because it contains a high level of emotional language, such as \"band ho jayega\" (a phrase often used to express excitement or enthusiasm in Indian culture), which is not typical of legitimate scams. Additionally, the message asks for money to a UPI ID, which is a legitimate payment method, but the fact that the scammer is asking for money to a UPI ID is suspicious."
+    },
+    {
+      "model_load_ms": 2666,
+      "ttft_ms": 4430,
+      "generation_ms": 10650,
+      "prefill_tok_s": 43.1151,
+      "decode_tok_s": 15.2733,
+      "prompt_tokens": 191,
+      "generated_tokens": 95,
+      "wall_ms": 13554.28177700003,
+      "peak_rss_mb": 1074.2890625,
+      "case": 3,
+      "valid": true,
+      "explanation": "This network connection was flagged because it's a very short connection that was reset immediately, which is typical of port scanning. The fact that the traffic pattern is unusual, with only 2 packets per second, suggests that the connection is being used for malicious purposes, such as DDoS attacks. The high confidence level (99%) of the verdict is due to the fact that port scanning is a common and well-documented type of attack."
+    },
+    {
+      "model_load_ms": 2669,
+      "ttft_ms": 4395,
+      "generation_ms": 9053,
+      "prefill_tok_s": 43.0034,
+      "decode_tok_s": 15.672,
+      "prompt_tokens": 189,
+      "generated_tokens": 73,
+      "wall_ms": 11968.252724999957,
+      "peak_rss_mb": 1077.52734375,
+      "case": 4,
+      "valid": true,
+      "explanation": "This link was flagged because the address \"secure-update-account.weebly.com\" contains words like \"login\", \"verify\", \"KYC\", or \"update\", which are all potential security concerns. The detector is not certain about the verdict, as the signal \"confidence: 78%\" is relatively low, indicating that the detector is uncertain about the accuracy of the verdict."
+    },
+    {
+      "model_load_ms": 2674,
+      "ttft_ms": 5014,
+      "generation_ms": 9399,
+      "prefill_tok_s": 42.6805,
+      "decode_tok_s": 15.5074,
+      "prompt_tokens": 214,
+      "generated_tokens": 68,
+      "wall_ms": 12312.909341000022,
+      "peak_rss_mb": 1073.890625,
+      "case": 0,
+      "valid": true,
+      "explanation": "This link was flagged because it uses plain HTTP, which is not secure. The link also uses the name \"SBI\" but the actual domain is not an official SBI website, which is also suspicious. Additionally, the link uses a cheap domain ending (.xyz) that is commonly used in scams, which is a clear indication of phishing activity."
+    },
+    {
+      "model_load_ms": 2664,
+      "ttft_ms": 4544,
+      "generation_ms": 8615,
+      "prefill_tok_s": 42.9137,
+      "decode_tok_s": 15.721,
+      "prompt_tokens": 195,
+      "generated_tokens": 64,
+      "wall_ms": 11515.17094299993,
+      "peak_rss_mb": 1076.30859375,
+      "case": 1,
+      "valid": true,
+      "explanation": "This message was flagged because it contains a bank (SBI) and government (KYC) reference, which are known red flags for scams. The presence of a link to a website that pretends to be a legitimate SBI website (SBI-KYC-Verify.TOP) is also a strong indication of a scam."
+    },
+    {
+      "model_load_ms": 2665,
+      "ttft_ms": 4168,
+      "generation_ms": 9626,
+      "prefill_tok_s": 42.9463,
+      "decode_tok_s": 15.0238,
+      "prompt_tokens": 179,
+      "generated_tokens": 82,
+      "wall_ms": 12527.165642,
+      "peak_rss_mb": 1075.3203125,
+      "case": 2,
+      "valid": true,
+      "explanation": "This message was flagged because it contains a high level of emotional language, such as \"band ho jayega\" (a phrase often used to express excitement or enthusiasm in Indian culture), which is not typical of legitimate scams. Additionally, the message asks for money to a UPI ID, which is a legitimate payment method, but the fact that the scammer is asking for money to a UPI ID is suspicious."
+    },
+    {
+      "model_load_ms": 2741,
+      "ttft_ms": 4458,
+      "generation_ms": 10725,
+      "prefill_tok_s": 42.8443,
+      "decode_tok_s": 15.1588,
+      "prompt_tokens": 191,
+      "generated_tokens": 95,
+      "wall_ms": 13705.582340999968,
+      "peak_rss_mb": 1076.1640625,
+      "case": 3,
+      "valid": true,
+      "explanation": "This network connection was flagged because it's a very short connection that was reset immediately, which is typical of port scanning. The fact that the traffic pattern is unusual, with only 2 packets per second, suggests that the connection is being used for malicious purposes, such as DDoS attacks. The high confidence level (99%) of the verdict is due to the fact that port scanning is a common and well-documented type of attack."
+    },
+    {
+      "model_load_ms": 2669,
+      "ttft_ms": 4425,
+      "generation_ms": 9080,
+      "prefill_tok_s": 42.7119,
+      "decode_tok_s": 15.6821,
+      "prompt_tokens": 189,
+      "generated_tokens": 73,
+      "wall_ms": 11990.845468999963,
+      "peak_rss_mb": 1073.58984375,
+      "case": 4,
+      "valid": true,
+      "explanation": "This link was flagged because the address \"secure-update-account.weebly.com\" contains words like \"login\", \"verify\", \"KYC\", or \"update\", which are all potential security concerns. The detector is not certain about the verdict, as the signal \"confidence: 78%\" is relatively low, indicating that the detector is uncertain about the accuracy of the verdict."
+    }
+  ]
+}

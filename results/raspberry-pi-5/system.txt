@@ -1,0 +1,10 @@
+## Storage footprint
+964K	models/network_isolation_forest.joblib
+632K	models/sms_pipeline.joblib
+3.4M	models/url_model.joblib
+766M	executorch/llama3_2_1b_int4.pte
+7.0M	executorch/llama_main
+4.5M	executorch/libllama_runner.so
+## Thermals after the run
+temp=49.6 C
+throttled=0x0   (0x0 = never throttled)

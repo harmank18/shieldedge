@@ -1,0 +1,55 @@
+ShieldEdge offline proof - 2026-11-19T23:08:19+05:30
+Device: Raspberry Pi 5 Model B Rev 1.0
+
+## Network state
+lo               UNKNOWN        127.0.0.1/8 ::1/128 
+eth0             DOWN           
+wlan0            DOWN           
+
+## ping 8.8.8.8 (expected to FAIL)
+ping: connect: Network is unreachable
+-> unreachable (good)
+
+## Sockets held by ShieldEdge / llama_main during inference (expected: none)
+(none)
+
+  ____  _     _      _     _ _____    _
+ / ___|| |__ (_) ___| | __| | ____|__| | __ _  ___
+ \___ \| '_ \| |/ _ \ |/ _` |  _| / _` |/ _` |/ _ \
+  ___) | | | | |  __/ | (_| | |__| (_| | (_| |  __/
+ |____/|_| |_|_|\___|_|\__,_|_____\__,_|\__, |\___|
+                                        |___/
+ On-device threat, phishing & scam detection  |  PS3, Bharat AI-SoC Challenge
+
+
+================================================================
+VERDICT:     [!] SCAM
+CONFIDENCE:  88.3%
+INPUT:       SMS  SMS (100 chars)
+
+SIGNALS:
+  - Pressure or threat words: blocked, block, 24 hours
+  - Uses the name of a trusted organisation: KYC, SBI
+  - Contains a link to sbi-kyc-verify.top, which pretends to be SBI but is not an official SBI website
+================================================================
+
+Explanation (Llama 3.2 1B on-device via ExecuTorch, llama3_2_1b_int4.pte)
+This message was flagged because it contains suspicious behavior, specifically:
+
+* The message is trying to convince the recipient that a certain organization (SBI) is trustworthy, which is a red flag.
+* The message is using pressure tactics (e.g. "24 hours") to try to convince the recipient to take action, which is also suspicious.
+
+
+What to do (vetted ShieldEdge playbook)
+  1. Do not click links, call numbers or reply to this message.
+  2. Never share an OTP, UPI PIN, CVV or Aadhaar/PAN details - banks and government offices never ask for them by SMS.
+  3. Report the sender on Sanchar Saathi (Chakshu) at sancharsaathi.gov.in; if money was lost, call 1930.
+
+Note: ShieldEdge is an advisory tool and may not detect every threat.
+
+[ExecuTorch] load 2701 ms | TTFT 2569 ms | prefill 76.3 tok/s | decode 15.0 tok/s | 196+95 tokens
+================================================================
+Detection latency 0.07 ms | Python RSS 236 MB | alert #40 (mark as safe: --mark-safe 40)
+
+## Packets captured on all interfaces during the run (expected: 0)
+0

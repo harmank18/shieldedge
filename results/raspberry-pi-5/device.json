@@ -1,0 +1,8 @@
+{
+  "device": "Raspberry Pi 5 Model B Rev 1.0",
+  "arch": "aarch64",
+  "cpus": 4,
+  "ram_gb": 7.8,
+  "os": "Linux-6.8.0-1064-raspi-aarch64-with-glibc2.39",
+  "python": "3.12.3"
+}

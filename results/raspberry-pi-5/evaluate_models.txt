@@ -1,0 +1,12 @@
+URL: held-out Mitake split ...
+SMS: UCI held-out + India test ...
+Network: CIC-IDS-2017 Friday ...
+
+           task                                    dataset     n  precision   recall       f1      fpr  roc_auc
+   URL phishing           Mitake held-out (unseen domains) 40548   0.967087 0.895696 0.930023 0.015408 0.989404
+   URL phishing              India challenge set (curated)    65   0.967742 1.000000 0.983607 0.028571 1.000000
+       SMS scam       UCI SMS Spam held-out (deduplicated)  1034   0.930233 0.916031 0.923077 0.009967 0.991923
+       SMS scam         India SMS test set (team-authored)    60   0.937500 1.000000 0.967742 0.066667 0.995556
+Network anomaly CIC-IDS-2017 Friday (train: Monday benign) 32736   0.958583 0.628769 0.759412 0.017300 0.970424
+
+Wrote /home/harman/shieldedge/results/evaluation_results.csv and /home/harman/shieldedge/results/benchmarks.md

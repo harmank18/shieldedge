@@ -32,17 +32,21 @@ Per-flow statistics catch scanning and failed botnet connections, but DDoS flows
 
 | Detector | Mean (ms) | Std (ms) |
 |---|---|---|
-| URL | 7.20 | 0.29 |
-| SMS | 2.78 | 0.10 |
-| Network (1 flow) | 13.33 | 0.30 |
+| URL | 7.04 | 0.32 |
+| SMS | 2.84 | 0.23 |
+| Network (1 flow) | 13.02 | 0.63 |
 
 200 timed calls after 10 warm-up calls, single Python process.
 
 ## On-device Llama (ExecuTorch)
 
-| Device | Program | Load (ms) | TTFT (ms) | Prefill (tok/s) | Decode (tok/s) | Explanation total (ms) | Peak RSS (MB) |
-|---|---|---|---|---|---|---|---|
-| 12th Gen Intel(R) Core(TM) i5-1235U | llama3_2_1b.pte | 44.3 ± 0.6 | 190726.3 ± 18223.0 | 1.8 ± 0.1 | 1.3 ± 0.0 | 264253.0 ± 18573.5 | 2515.9 ± 0.1 |
-| 12th Gen Intel(R) Core(TM) i5-1235U | llama3_2_1b_int4.pte | 1892.0 ± 74.4 | 1709.3 ± 109.0 | 113.3 ± 2.5 | 34.0 ± 0.5 | 3829.8 ± 191.4 | 1078.9 ± 0.1 |
+| Device | Program | Threads | Load (ms) | TTFT (ms) | Prefill (tok/s) | Decode (tok/s) | Explanation total (ms) | Peak RSS (MB) |
+|---|---|---|---|---|---|---|---|---|
+| Raspberry Pi 5 Model B Rev 1.0 | llama3_2_1b_int4.pte | 2 | 2675.4 ± 2.9 | 2536.1 ± 186.0 | 76.4 ± 1.4 | 14.5 ± 0.5 | 7823.8 ± 719.2 | 1075.7 ± 1.1 |
+| Raspberry Pi 5 Model B Rev 1.0 | llama3_2_1b_int4.pte | 1 | 2680.7 ± 25.0 | 4515.1 ± 291.1 | 42.9 ± 0.1 | 15.4 ± 0.3 | 9484.9 ± 724.9 | 1075.3 ± 1.4 |
+| Raspberry Pi 5 Model B Rev 1.0 | llama3_2_1b_int4.pte | 2 | 2680.9 ± 18.5 | 2487.0 ± 168.2 | 77.9 ± 0.8 | 14.9 ± 0.5 | 7598.4 ± 681.8 | 1075.5 ± 1.4 |
+| Raspberry Pi 5 Model B Rev 1.0 | llama3_2_1b_int4.pte | 4 | 2685.8 ± 16.9 | 1679.7 ± 157.2 | 115.6 ± 5.6 | 11.9 ± 0.1 | 8087.9 ± 911.0 | 1075.2 ± 1.3 |
+| 12th Gen Intel(R) Core(TM) i5-1235U | llama3_2_1b.pte | runner default | 44.3 ± 0.6 | 190726.3 ± 18223.0 | 1.8 ± 0.1 | 1.3 ± 0.0 | 264253.0 ± 18573.5 | 2515.9 ± 0.1 |
+| 12th Gen Intel(R) Core(TM) i5-1235U | llama3_2_1b_int4.pte | runner default | 1892.0 ± 74.4 | 1709.3 ± 109.0 | 113.3 ± 2.5 | 34.0 ± 0.5 | 3829.8 ± 191.4 | 1078.9 ± 0.1 |
 
 From `scripts/benchmark_llm.py` (mean ± std over all runs; see the JSON files for raw data).
