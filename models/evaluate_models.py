@@ -72,7 +72,7 @@ def main():
     rows, extra = [], {}
     url_det = URLDetector(os.path.join(MODELS, "url_model.joblib"))
     sms_det = SMSDetector(os.path.join(MODELS, "sms_pipeline.joblib"))
-    net_det = NetworkDetector(os.path.join(MODELS, "network_isolation_forest.joblib"))
+    net_det = NetworkDetector(os.path.join(MODELS, "network_model.joblib"))
 
     # ---------------- URL
     print("URL: held-out Mitake split ...")
@@ -80,6 +80,11 @@ def main():
     res = url_det.predict_batch(t.url.tolist())
     rows.append(metrics("URL phishing", "Mitake held-out (unseen domains)", t.label == 1,
                         [r["verdict"] for r in res], [r["score"] for r in res]))
+    base_path = os.path.join(MODELS, "url_model_baseline.joblib")
+    if os.path.exists(base_path):  # same split, previous configuration (train_url_classifier.py --baseline)
+        res_b = URLDetector(base_path).predict_batch(t.url.tolist())
+        rows.append(metrics("URL phishing", "Mitake held-out, baseline (char-only, half data)", t.label == 1,
+                            [r["verdict"] for r in res_b], [r["score"] for r in res_b], "ablation"))
     c = pd.read_csv(os.path.join(CURATED, "india_urls.csv"))
     res = url_det.predict_batch(c.url.tolist())
     rows.append(metrics("URL phishing", "India challenge set (curated)", c.label == "phishing",
@@ -105,6 +110,24 @@ def main():
                         v, [r["score"] for r in res]))
     extra["network_detection_rate_by_label"] = {
         lab: round(float((v[n.label.values == lab] != "SAFE").mean()), 4) for lab in sorted(n.label.unique())}
+    # Baseline: the previous Isolation Forest, refitted on the same benign data with the same
+    # holdout-percentile thresholds (98th percentile = any warning).
+    from sklearn.ensemble import IsolationForest
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import FunctionTransformer, StandardScaler
+    from shieldedge.network_detector import FLOW_FEATURE_NAMES, log1p_clip
+    tr = pd.read_csv(os.path.join(PROCESSED, "net_train.csv"))
+    ho = pd.read_csv(os.path.join(PROCESSED, "net_holdout.csv"))
+    iso = make_pipeline(FunctionTransformer(log1p_clip), StandardScaler(),
+                        IsolationForest(n_estimators=200, max_samples=512, random_state=42, n_jobs=-1))
+    iso.fit(tr[FLOW_FEATURE_NAMES].values)
+    thr = np.quantile(-iso.score_samples(ho[FLOW_FEATURE_NAMES].values), 0.98)
+    s_iso = -iso.score_samples(n[FLOW_FEATURE_NAMES].fillna(tr[FLOW_FEATURE_NAMES].median()).values)
+    v_iso = np.where(s_iso >= thr, "ANOMALY", "SAFE")
+    rows.append(metrics("Network anomaly", "CIC-IDS-2017 Friday, Isolation Forest baseline", n.label != "BENIGN",
+                        v_iso, s_iso, "previous model, same data and thresholds"))
+    extra["network_detection_rate_by_label_iforest"] = {
+        lab: round(float((v_iso[n.label.values == lab] != "SAFE").mean()), 4) for lab in sorted(n.label.unique())}
 
     # ---------------- per-input latency of the deployed path
     lat = {
@@ -141,12 +164,13 @@ def main():
                   f"{pct(r['recall'])} | {r['f1']:.3f} | {pct(r['fpr'])} | {r['roc_auc']:.3f} |")
     md += ["", "Curated India sets are small and partly team-authored: treat them as sanity checks, not benchmarks.",
            "", "### Network: detection rate per CIC-IDS-2017 label (Friday)", "",
-           "| Label | Flagged |", "|---|---|"]
+           "| Label | kNN novelty (deployed) | Isolation Forest (baseline) |", "|---|---|---|"]
     for lab, rate in extra["network_detection_rate_by_label"].items():
-        md.append(f"| {lab} | {pct(rate)} |")
-    md += ["", "Per-flow statistics catch scanning and failed botnet connections, but DDoS flows and established "
-               "botnet C2 traffic look like normal web traffic one flow at a time; detecting them needs time-window "
-               "aggregation across flows (planned for live capture in Phase 2).",
+        md.append(f"| {lab} | {pct(rate)} | {pct(extra['network_detection_rate_by_label_iforest'][lab])} |")
+    md += ["", "DDoS and botnet C2 flows have ordinary values feature by feature, so the Isolation Forest's "
+               "axis-aligned splits miss them; no benign flow has the same combination of values, which the "
+               "nearest-neighbour distance captures. Botnet detection relies partly on its unusual service port "
+               "(8080), which is specific to this testbed.",
            "", "## Detection latency (one input, deployed path)", "",
            "| Detector | Mean (ms) | Std (ms) |", "|---|---|---|"]
     for k, (m, s) in lat.items():
