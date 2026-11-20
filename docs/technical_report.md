@@ -26,7 +26,7 @@ traffic), the deployed system reaches:
 | Detector | F1 | FPR | Notes |
 |---|---|---|---|
 | URL | 0.944 | 4.0% | 0.8% FPR at the strict PHISHING level (precision 98.4%) |
-| SMS | 0.958 | 0.6% | UCI held-out |
+| SMS | 0.961 | 1.3% | real 2022–25 smishing reports (UCI 2011: 0.890) |
 | Network | 0.980 | 2.5% | DDoS, botnet C2 and PortScan all ≥ 99.6% detected |
 
 INT4 quantisation shrank the Llama program from 2.4 GB to 765 MB. On the development laptop, decode went from
@@ -101,11 +101,22 @@ REST API bound to 127.0.0.1. Users can mark an alert as safe, and `--clear-logs`
   recall at 1% FPR from 0.816 to 0.858. Thresholds are chosen on validation: PHISHING at 1% FPR, SUSPICIOUS at 4%.
 
 ### 4.2 SMS scam detector
-- **Model.** TF-IDF word 1–2-grams plus character 2–5-grams with LinearSVC and 5-fold sigmoid calibration. In 5-fold
-  cross-validation on the training split, character n-grams raised F1 from 0.935 to 0.959, because they catch
-  obfuscations such as `fr33`, `c1aim` and `£1000`. It is trained on the UCI SMS
-  Spam Collection, **de-duplicated before splitting** (403 exact duplicates had leaked into the test set), plus 70
-  team-authored Indian messages.
+- **Model.** Links, phone numbers, e-mails and long numbers are masked to placeholder words. The text then goes
+  through TF-IDF word 1–2-grams plus character 2–5-grams, then LinearSVC with 5-fold sigmoid calibration. Character
+  n-grams catch obfuscations such as `fr33`, `c1aim` and `£1000`. Masking makes the model learn message patterns,
+  not specific domains; the rule layer still checks the real links.
+- **Data.** Trained on 21.5k messages:
+  - UCI SMS Spam, **de-duplicated before splitting** (403 exact duplicates had leaked into the test set);
+  - **10k real smishing reports from 2025 (IMC)** and the Mishra & Soni SMS phishing dataset;
+  - AI-written genuine service messages (OTP, bank, delivery), used for training only;
+  - 40% of an AI-generated Indian SMS set in seven languages and code-mixes;
+  - 70 team-authored messages.
+
+  Any training message matching a validation or test message in any dataset is dropped (3,748). The Mishra & Soni
+  set partly overlaps UCI.
+- **Why.** Trained on UCI alone, the model caught only 51% of real 2022–25 smishing and flagged 29% of genuine
+  Indian look-alikes. Variants were compared on validation at a fixed pooled false-alarm rate. Thresholds are set on
+  validation: SUSPICIOUS at 3% pooled FPR, SCAM at 1%.
 - **Rules.** UCI's "ham" is UK personal chat from 2011, so the raw model flagged genuine Indian bank alerts. We
   added three explainable rules:
   - Links inside the SMS are checked with the URL detector's offline domain logic.
@@ -218,13 +229,19 @@ identical on both devices, because the models and rules are deterministic.
 | URL | Mitake, unseen domains (≤ 50/site) | 122,149 (43,265) | 92.9% | 95.9% | 0.944 | 4.0% | 0.992 |
 | URL | same, PHISHING verdicts only | 122,149 (43,265) | 98.4% | 89.2% | 0.936 | 0.8% | – |
 | URL | India challenge set* | 65 (30) | 90.9% | 100% | 0.952 | 8.6% | 0.998 |
-| SMS | UCI, de-duplicated | 1,034 (131) | 96.2% | 95.4% | 0.958 | 0.6% | 0.999 |
-| SMS | India test set* | 60 (30) | 90.9% | 100% | 0.952 | 10.0% | 0.984 |
+| SMS | **Real smishing 2022–25** (IMC + Mishra & Soni) | 1,510 (1,045) | 99.4% | 93.1% | 0.961 | 1.3% | 0.994 |
+| SMS | Indian, AI-generated, 7 languages† | 632 (319) | 87.2% | 91.8% | 0.895 | 13.7% | 0.942 |
+| SMS | UCI, de-duplicated (UK, 2011) | 1,034 (131) | 85.8% | 92.4% | 0.890 | 2.2% | 0.986 |
+| SMS | India test set* | 60 (30) | 100% | 100% | 1.000 | 0.0% | 1.000 |
 | Network | CIC-IDS-2017 Friday | 32,736 (12,736) | 96.2% | 99.9% | 0.980 | 2.5% | 0.992 |
 
 **Baselines on the same test sets.** URL, previous configuration (char n-grams only, half the training data):
-F1 0.939, recall 94.9%, FPR 4.0%. Network, previous Isolation Forest: F1 0.759, recall 62.9%, FPR 1.7%.
+F1 0.939, recall 94.9%, FPR 4.0%. Network, previous Isolation Forest: F1 0.759, recall 62.9%, FPR 1.7%. SMS,
+previous model (UCI + team data only): real smishing F1 0.680 (recall 51.5%), Indian F1 0.782 (FPR 29.1%), UCI
+F1 0.958 (FPR 0.6%). The new model trades about 1.6 points of UCI false alarms (casual 2011 chats, which modern
+"wrong number" scams imitate) for 42 points of recall on real modern smishing.
 
+† Synthetic; same generator as the 40% used for training, so optimistic for real Indian SMS.
 \* Small, team-curated sets. The India URL phishing rows are synthetic, modelled on reported campaigns. These are
 sanity checks only.
 
@@ -279,9 +296,9 @@ empty list-style answer, were replaced by the template. There were 0 raw-input l
 **Limitations**
 - **URL:** analysis is lexical only and offline (no WHOIS, content or blocklist). It can be evaded by phishing on
   reputable shared platforms. The allowlist needs maintenance.
-- **SMS:** Indian coverage relies on a small, team-authored set. Three of the 30 genuine India test messages are
-  false positives (two before the character-n-gram change). Native-script regional
-  languages are not modelled.
+- **SMS:** Indian and code-mixed coverage comes mostly from AI-generated messages and is tested on the same
+  generator. Real Indian SMS collected with consent are the most valuable next step. 13.7% of genuine Indian
+  look-alikes and 2.2% of casual UK chats are still flagged.
 - **Network:** trained and tested on one testbed (CIC-IDS-2017). The 2.5% benign alarm rate and the botnet result,
   which relies on the C2 port, need validation on other networks. This copy of the data has no usable timestamps,
   so timing features are not used. Phase 1 has no live capture.
@@ -305,6 +322,8 @@ empty list-style answer, were replaced by the template. There were 0 raw-input l
 4. T. A. Almeida, J. M. G. Hidalgo, *SMS Spam Collection*, UCI ML Repository, 2011.
 5. I. Sharafaldin, A. H. Lashkari, A. A. Ghorbani, *Toward generating a new intrusion detection dataset* (CIC-IDS-2017), ICISSP 2018; improved labels: G. Engelen, V. Rimmer, W. Joosen, 2021.
 6. Mitake, *PhishingURLsANDBenignURLs*, Hugging Face Datasets.
+10. S. Mishra, D. Soni, *SMS Phishing Dataset for Machine Learning and Pattern Recognition*, Mendeley Data, 2022; IMC 2025 smishing reports and synthetic messages via rasheq/scam-shield-sms (CC BY 4.0).
+11. Ridham115, *Indian Scam SMS (synthetic, audited)*, Hugging Face Datasets (CC BY 4.0).
 7. F. T. Liu, K. M. Ting, Z.-H. Zhou, *Isolation Forest*, ICDM 2008.
 8. Ministry of Home Affairs (I4C), National Cyber Crime Reporting Portal and helpline 1930; DoT, Sanchar Saathi (Chakshu); CERT-In.
 9. Government of India, *Information Technology Act, 2000*.
