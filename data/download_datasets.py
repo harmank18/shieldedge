@@ -6,6 +6,12 @@ is downloaded (and cached) by this script - nothing here is generated:
 
   URL   Mitake/PhishingURLsANDBenignURLs (Hugging Face)      ~886k labelled URLs
   SMS   UCI SMS Spam Collection (Almeida & Hidalgo, 2011)    5,574 messages
+  SMS   rasheq/scam-shield-sms (Hugging Face, CC BY 4.0): real smishing reports (IMC 2025,
+        10,167 scams) + Mishra & Soni SMS phishing dataset (2022) + synthetic service
+        messages; links/numbers already masked as <URL>, <PHONE_NUMBER>, ...
+  SMS   Ridham115/indian-scam-sms-synthetic-audited (Hugging Face, CC BY 4.0): 1,580
+        AI-generated Indian scam / genuine look-alike SMS in English, Hinglish, Hindi,
+        Tamil, Telugu, Bengali, Marathi (partly human-audited) - always labelled synthetic
   NET   bvk/CICIDS-2017 (Hugging Face; improved CIC-IDS-2017 labels) Monday + Friday
 
 Small team-authored India-specific sets live in data/curated/ and are clearly
@@ -23,6 +29,8 @@ CURATED_DIR = os.path.join(DATA_DIR, "curated")
 
 MITAKE_REPO = ("Mitake/PhishingURLsANDBenignURLs", "PhishBenignDataset.csv")
 CICIDS_REPO = "bvk/CICIDS-2017"
+SMISHING_REPO = "rasheq/scam-shield-sms"
+INDIAN_SMS_REPO = "Ridham115/indian-scam-sms-synthetic-audited"
 UCI_SMS_URL = "https://raw.githubusercontent.com/justmarkham/pycon-2016-tutorial/master/data/sms.tsv"  # mirror of UCI SMS Spam Collection
 
 
@@ -52,9 +60,21 @@ def uci_sms_path() -> str:
     return path
 
 
+def smishing_paths() -> dict:
+    """rasheq/scam-shield-sms train/val/test CSVs (columns: text, label, source, scam_type)."""
+    return {s: _hf_file(SMISHING_REPO, f"{s}.csv") for s in ("train", "val", "test")}
+
+
+def indian_sms_path() -> str:
+    """Ridham115 synthetic Indian SMS CSV (columns include text, label, language)."""
+    return _hf_file(INDIAN_SMS_REPO, "data/synthetic_audited.csv")
+
+
 def main():
     print("[URL]", mitake_urls_path())
     print("[SMS]", uci_sms_path())
+    print("[SMS smishing]", smishing_paths())
+    print("[SMS Indian synthetic]", indian_sms_path())
     for day in ("monday", "friday"):
         print(f"[NET:{day}]", cicids_path(day))
     print("All datasets available. Curated India-specific sets:", CURATED_DIR)

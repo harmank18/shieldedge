@@ -69,9 +69,34 @@ def has_devanagari(text: str) -> bool:
     return any("ऀ" <= c <= "ॿ" for c in text)
 
 
-def preprocess_text(text: str) -> str:
-    """Lower-case, keep Devanagari and the rupee sign, drop other symbols (used for training and inference)."""
-    text = text.lower()
+# Placeholders used by the text model. The smishing corpus ships with links and numbers already
+# masked (<URL>, <PHONE_NUMBER>, ...); masking every message the same way keeps training and
+# inference consistent and makes the model learn message patterns, not specific domains or numbers.
+# (The rule layer still inspects the real links in the raw text.)
+_MASK_TOKENS = {"<URL>": " xurlx ", "<PHONE_NUMBER>": " xphonex ", "<EMAIL_ADDRESS>": " xemailx ", "<NUMBER>": " xnumx "}
+_M_EMAIL = re.compile(r"\b[\w.\-]+@[\w\-]+\.[\w.]+\b")
+_M_URL = re.compile(r"(https?://\S+|www\.\S+|\b[a-z0-9\-]+(\.[a-z0-9\-]+)*\.(com|in|net|org|xyz|top|co|uk|info|ly|me|io|"
+                    r"biz|online|site|shop|click|link)(/\S*)?)", re.I)
+_M_PHONE = re.compile(r"\+?\d[\d\s\-]{8,}\d")
+_M_NUM = re.compile(r"\b\d{5,}\b")
+
+
+def mask_for_model(text: str) -> str:
+    """Replace links, e-mails, phone numbers and long numbers with placeholder words."""
+    text = str(text)
+    for k, v in _MASK_TOKENS.items():
+        text = text.replace(k, v)
+    text = _M_EMAIL.sub(" xemailx ", text)
+    text = _M_URL.sub(" xurlx ", text)
+    text = _M_PHONE.sub(" xphonex ", text)
+    return _M_NUM.sub(" xnumx ", text)
+
+
+def preprocess_text(text: str, mask: bool = True) -> str:
+    """Mask links/numbers, lower-case, keep Devanagari and the rupee sign (used for training and inference).
+
+    mask=False reproduces the preprocessing of models trained before masking was added."""
+    text = (mask_for_model(text) if mask else str(text)).lower()
     text = re.sub(r"[^\w\s?!₹.,\-:/@ऀ-ॿ]", " ", text)
     return text.strip()
 
@@ -111,12 +136,14 @@ class SMSDetector:
     def __init__(self, model_path: str = None):
         self.pipeline = None
         self.t_scam, self.t_susp = 0.80, 0.50
+        self.mask_links = False
         if model_path and os.path.exists(model_path):
             obj = joblib.load(model_path)
             if isinstance(obj, dict):
                 self.pipeline = obj["pipeline"]
                 self.t_scam = obj.get("threshold_scam", self.t_scam)
                 self.t_susp = obj.get("threshold_suspicious", self.t_susp)
+                self.mask_links = obj.get("mask_links", False)
             else:
                 self.pipeline = obj
 
@@ -168,7 +195,7 @@ class SMSDetector:
         signals = self.signals_from(a)
 
         if self.pipeline is not None:
-            p = float(self.pipeline.predict_proba([preprocess_text(text)])[0][1])
+            p = float(self.pipeline.predict_proba([preprocess_text(text, self.mask_links)])[0][1])
         else:
             p = min(0.95, 0.05 + 0.2 * len(signals))
 
