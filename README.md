@@ -149,10 +149,29 @@ python shieldedge.py --url "..." --fast                                       # 
 python shieldedge.py --alerts            # local audit log (hashes only)
 python shieldedge.py --mark-safe 12      # report alert #12 as a false positive
 python shieldedge.py --clear-logs        # delete all stored alerts
+python shieldedge.py --web               # web dashboard on 127.0.0.1:8080 (see below)
 python shieldedge.py --dashboard         # terminal dashboard
 python shieldedge.py --serve             # REST API on 127.0.0.1:5050 (local only)
 python shieldedge.py --benchmark         # detector latency on this device
 ```
+
+### Web dashboard
+
+`python shieldedge.py --web` starts a local dashboard. It is served by the device itself with no external
+libraries or CDNs, so it works fully offline. It binds to 127.0.0.1; to watch the Pi's dashboard from a laptop, use
+an SSH tunnel: `ssh -L 8080:localhost:8080 <pi>` and open http://localhost:8080.
+
+- **Live feed and threat detail:** every item the detectors analyse, colour-coded. Click one to see its signals,
+  stream the Llama 3.2 1B explanation from ExecuTorch (with TTFT and tok/s), and read the vetted playbook steps.
+- **Labelled dataset replay** (`--no-replay` turns it off): real CIC-IDS-2017 Friday flows in a scripted scenario
+  (normal → port scan → DDoS → botnet), plus held-out URLs and SMS never used in training, at 5 flows per second.
+  Every replay item shows its dataset label and whether the verdict agrees, so mistakes are visible too.
+  `data/build_dashboard_replay.py` rebuilds these files.
+- **Network traffic chart:** flows and flagged flows per second over the last 2 minutes.
+- **Try it:** analyse any link or SMS typed into the page. It is stored as a hash only.
+- **On-device panel:** per-core CPU load, temperature, RAM, whether `llama_main` is running, and the number of
+  external network connections held by the ShieldEdge process (0).
+- **Model quality and audit log:** held-out metrics read from `results/`, plus mark-safe and clear-all-logs.
 
 ### Reproduce everything
 
@@ -164,7 +183,7 @@ python data/build_network_dataset.py && python models/train_network_detector.py
 python models/evaluate_models.py           # → results/evaluation_results.csv, results/benchmarks.md
 python scripts/benchmark_llm.py            # → results/llm_benchmark_<device>_<program>.json/.md
 python scripts/prompt_eval.py              # → results/prompt_eval_<device>.json
-pytest                                     # 36 tests
+pytest                                     # 45 tests
 ```
 
 ### Export Llama 3.2 1B-Instruct to ExecuTorch

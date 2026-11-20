@@ -72,7 +72,9 @@ were:
 so it is used only for the part classical models cannot do: explaining. This keeps the safe path (more than 95%
 of real inputs) free of LLM cost and makes verdicts immune to prompt injection.
 
-**Interfaces.** There is a CLI (`shieldedge.py`) with live token streaming, a Rich terminal dashboard, and a local
+**Interfaces.** There is a CLI (`shieldedge.py`) with live token streaming, an offline web dashboard (live feed of a
+labelled dataset replay, threat detail with streamed Llama explanations, traffic chart, per-core load and an
+external-connection counter), a Rich terminal dashboard, and a local
 REST API bound to 127.0.0.1. Users can mark an alert as safe, and `--clear-logs` deletes all stored data.
 
 ## 4. Threat detection methodology
