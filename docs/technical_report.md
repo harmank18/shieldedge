@@ -285,8 +285,8 @@ empty list-style answer, were replaced by the template. There were 0 raw-input l
 | Item | Laptop (i5-1235U) | Raspberry Pi 5 |
 |---|---|---|
 | Detector models | 10 MB total | same files |
-| Per-input detection (URL / SMS / one flow) | 5.5 / 3.4 / 11.6 ms | 8.0 / 5.5 / 10.4 ms |
-| Python process with all detectors loaded | about 320 MB RSS | 315 MB RSS |
+| Per-input detection (URL / SMS / one flow) | 5.5 / 3.4 / 11.6 ms | 8.4 / 5.6 / 10.9 ms |
+| Python process with all detectors loaded | about 320 MB RSS | 325 MB RSS |
 | Llama runner (separate process) | 1.08 GB peak | 1.08 GB peak |
 | Thermals after the full benchmark | – | 49.6 °C, never throttled (no fan) |
 | Offline proof (network down, tcpdump on all interfaces) | – | 0 packets, no sockets |

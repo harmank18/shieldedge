@@ -12,8 +12,9 @@ Detection latency benchmark on: Raspberry Pi 5 Model B Rev 1.0 (aarch64)
 200 timed calls per detector after 10 warm-up calls
 
 Detector     mean ms    std ms    p95 ms
-URL            8.015     0.079     8.184
-SMS            5.538     0.074     5.719
-Network       10.418     0.085    10.568
+URL            8.428     0.116     8.672
+SMS            5.616     0.061     5.797
+Network       10.900     0.042    10.967
 
-Python process RSS with all three detectors loaded: 315 MB
+Python process RSS with all three detectors loaded: 325 MB
+EVAL_DONE

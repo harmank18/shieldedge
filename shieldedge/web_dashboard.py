@@ -240,8 +240,9 @@ class Dashboard:
         if os.path.exists(p):
             d = pd.read_csv(p)
             out["detection"] = [
+                # F1 from the raw counts: the CSV value is already rounded to 4 places and would round again.
                 {"task": r.task, "dataset": r.dataset, "n": int(r.n), "precision": r.precision, "recall": r.recall,
-                 "f1": r.f1, "fpr": r.fpr} for r in d.itertuples()]
+                 "f1": 2 * r.tp / max(1, 2 * r.tp + r.fp + r.fn), "fpr": r.fpr} for r in d.itertuples()]
         slug = device_slug()
         for name in (f"llm_benchmark_{slug}_llama3_2_1b_int4.json", "llm_benchmark_raspberry-pi-5_llama3_2_1b_int4.json"):
             q = os.path.join(RESULTS, name)

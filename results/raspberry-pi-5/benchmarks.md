@@ -10,8 +10,10 @@ All numbers come from the deployed decision path (model + rules + thresholds). P
 |---|---|---|---|---|---|---|---|
 | URL phishing | Mitake held-out (unseen domains) | 122,149 (43,265) | 92.9% | 95.9% | 0.944 | 4.0% | 0.992 |
 | URL phishing | India challenge set (curated) | 65 (30) | 90.9% | 100.0% | 0.952 | 8.6% | 0.998 |
-| SMS scam | UCI SMS Spam held-out (deduplicated) | 1,034 (131) | 96.2% | 95.4% | 0.958 | 0.6% | 0.999 |
-| SMS scam | India SMS test set (team-authored) | 60 (30) | 90.9% | 100.0% | 0.952 | 10.0% | 0.984 |
+| SMS scam | UCI SMS Spam held-out (deduplicated) | 1,034 (131) | 85.8% | 92.4% | 0.890 | 2.2% | 0.986 |
+| SMS scam | Real smishing 2022-25 held-out (IMC reports + Mishra & Soni) | 1,510 (1,045) | 99.4% | 93.1% | 0.961 | 1.3% | 0.994 |
+| SMS scam | Indian SMS, AI-generated, 7 languages (held-out 40%) | 632 (319) | 87.2% | 91.8% | 0.895 | 13.7% | 0.942 |
+| SMS scam | India SMS test set (team-authored) | 60 (30) | 100.0% | 100.0% | 1.000 | 0.0% | 1.000 |
 | Network anomaly | CIC-IDS-2017 Friday (train: Monday benign) | 32,736 (12,736) | 96.2% | 99.9% | 0.980 | 2.5% | 0.992 |
 | Network anomaly | CIC-IDS-2017 Friday, Isolation Forest baseline | 32,736 (12,736) | 95.9% | 62.9% | 0.759 | 1.7% | 0.970 |
 
@@ -33,9 +35,9 @@ DDoS and botnet C2 flows have ordinary values feature by feature, so the Isolati
 
 | Detector | Mean (ms) | Std (ms) |
 |---|---|---|
-| URL | 8.24 | 0.17 |
-| SMS | 5.64 | 0.06 |
-| Network (1 flow) | 10.78 | 0.25 |
+| URL | 8.35 | 0.07 |
+| SMS | 5.61 | 0.06 |
+| Network (1 flow) | 10.75 | 0.06 |
 
 200 timed calls after 10 warm-up calls, single Python process.
 

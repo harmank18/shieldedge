@@ -110,8 +110,8 @@ threads. Two threads give the shortest full explanation, so ShieldEdge uses 2 th
 (`SHIELDEDGE_LLM_THREADS` overrides). The laptop decodes about 2.3× faster (34 tok/s).
 
 **Other Pi measurements**
-- **Detection latency per input:** URL 8.0 ms, SMS 5.5 ms, one network flow 10.4 ms. The Python process with all
-  three detectors loaded uses 315 MB.
+- **Detection latency per input:** URL 8.4 ms, SMS 5.6 ms, one network flow 10.9 ms. The Python process with all
+  three detectors loaded uses 325 MB.
 - **Thermals:** 49.6 °C after the full benchmark, and the throttle flags stayed at 0x0 (never throttled), without
   a fan.
 - **Offline proof** ([`offline_proof.txt`](results/raspberry-pi-5/offline_proof.txt)): Wi-Fi and Ethernet were down
@@ -175,6 +175,11 @@ an SSH tunnel: `ssh -L 8080:localhost:8080 <pi>` and open http://localhost:8080.
 - **On-device panel:** per-core CPU load, temperature, RAM, whether `llama_main` is running, and the number of
   external network connections held by the ShieldEdge process (0).
 - **Model quality and audit log:** held-out metrics read from `results/`, plus mark-safe and clear-all-logs.
+
+On the Raspberry Pi 5 the dashboard process uses about 336 MB. One explanation from the dashboard (SMS scam case)
+took 2.7 s to load the model, 2.6 s to the first token, then 95 tokens at 13.3 tok/s, and passed the output
+validator. Screenshot from the Pi (captured with live streaming off, so the feed is empty):
+[docs/dashboard_pi5.png](docs/dashboard_pi5.png).
 
 ### Reproduce everything
 
