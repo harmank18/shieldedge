@@ -7,8 +7,9 @@ Build the replay files for the web dashboard (python shieldedge.py --web).
                                     botnet connection attempts, each mixed with normal traffic.
                                     The order is ours (this copy of the dataset has no usable
                                     timestamps); every flow and its label are real.
-  data/samples/replay_messages.csv  held-out URLs and SMS (never used for training) plus the
-                                    team-curated India sets, shuffled.
+  data/samples/replay_messages.csv  held-out URLs and SMS (never used for training: UCI, real smishing
+                                    reports with links masked as <URL> in the source, AI-generated Indian
+                                    messages) plus the team-curated India sets, shuffled.
 
 Everything the dashboard shows from these files is labelled "replay".
 Run after the training scripts (needs data/processed/): python data/build_dashboard_replay.py
@@ -68,10 +69,13 @@ def build_messages():
         rows += [("URL", u, "phishing" if label else "benign", "Mitake held-out") for u in s.url]
     india_urls = pd.read_csv(os.path.join(CURATED_DIR, "india_urls.csv"))
     rows += [("URL", u, lab, "India curated") for u, lab in zip(india_urls.url, india_urls.label)]
-    sms_test = pd.read_csv(os.path.join(PROCESSED, "sms_test.csv"))
-    for label, n in (("spam", 40), ("ham", 60)):
-        s = sms_test[sms_test.label == label].sample(n, random_state=SEED)
-        rows += [("SMS", m, "scam" if label == "spam" else "genuine", "UCI held-out") for m in s.message]
+    for fname, source, n_spam, n_ham in (("sms_test.csv", "UCI held-out", 20, 40),
+                                         ("sms_test_smishing.csv", "real smishing reports, held-out", 40, 20),
+                                         ("sms_test_indian_synthetic.csv", "Indian AI-generated, held-out", 30, 30)):
+        sms_test = pd.read_csv(os.path.join(PROCESSED, fname))
+        for label, n in (("spam", n_spam), ("ham", n_ham)):
+            s = sms_test[sms_test.label == label].sample(n, random_state=SEED)
+            rows += [("SMS", m, "scam" if label == "spam" else "genuine", source) for m in s.message]
     india_sms = pd.read_csv(os.path.join(CURATED_DIR, "india_sms_test.csv"))
     rows += [("SMS", m, "scam" if lab == "spam" else "genuine", "India curated")
              for m, lab in zip(india_sms.message, india_sms.label)]
