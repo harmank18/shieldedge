@@ -92,14 +92,28 @@ def main():
                         "phishing rows are team-authored; indicative only"))
 
     # ---------------- SMS
-    print("SMS: UCI held-out + India test ...")
-    for path, name, note in ((os.path.join(PROCESSED, "sms_test.csv"), "UCI SMS Spam held-out (deduplicated)", ""),
-                             (os.path.join(CURATED, "india_sms_test.csv"), "India SMS test set (team-authored)",
-                              "team-authored; indicative only")):
+    print("SMS: UCI held-out, real smishing, Indian synthetic, India team test ...")
+    sms_sets = [
+        (os.path.join(PROCESSED, "sms_test.csv"), "UCI SMS Spam held-out (deduplicated)", ""),
+        (os.path.join(PROCESSED, "sms_test_smishing.csv"), "Real smishing 2022-25 held-out (IMC reports + Mishra & Soni)",
+         "links/numbers masked in the source data"),
+        (os.path.join(PROCESSED, "sms_test_indian_synthetic.csv"), "Indian SMS, AI-generated, 7 languages (held-out 40%)",
+         "synthetic; same generator as the 40% training part"),
+        (os.path.join(CURATED, "india_sms_test.csv"), "India SMS test set (team-authored)", "team-authored; indicative only"),
+    ]
+    base_sms = os.path.join(MODELS, "sms_pipeline_baseline.joblib")
+    sms_base = SMSDetector(base_sms) if os.path.exists(base_sms) else None
+    for path, name, note in sms_sets:
+        if not os.path.exists(path):
+            continue
         d = pd.read_csv(path)
         res = [sms_det.predict(m) for m in d.message.astype(str)]
         rows.append(metrics("SMS scam", name, d.label == "spam", [r["verdict"] for r in res],
                             [r["score"] for r in res], note))
+        if sms_base is not None:  # previous model (UCI + team data only), same test set
+            res_b = [sms_base.predict(m) for m in d.message.astype(str)]
+            rows.append(metrics("SMS scam", name + ", previous model (baseline)", d.label == "spam",
+                                [r["verdict"] for r in res_b], [r["score"] for r in res_b], "ablation"))
 
     # ---------------- Network
     print("Network: CIC-IDS-2017 Friday ...")
