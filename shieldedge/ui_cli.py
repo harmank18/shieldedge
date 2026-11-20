@@ -143,9 +143,12 @@ def main():
     t.add_argument("--clear-logs", action="store_true", help="delete all locally stored alerts")
     t.add_argument("--benchmark", action="store_true", help="detector latency benchmark")
     t.add_argument("--dashboard", action="store_true", help="terminal dashboard of the audit log")
+    t.add_argument("--web", action="store_true",
+                   help="start the local web dashboard (live feed, Llama explanations, device stats)")
+    t.add_argument("--no-replay", action="store_true", help="web dashboard without the dataset replay feed")
     t.add_argument("--serve", action="store_true", help="start the local REST API")
-    t.add_argument("--host", default="127.0.0.1", help="REST API bind address (default 127.0.0.1, local only)")
-    t.add_argument("--port", type=int, default=5050, help="REST API port (default 5050)")
+    t.add_argument("--host", default="127.0.0.1", help="bind address for --web/--serve (default 127.0.0.1, local only)")
+    t.add_argument("--port", type=int, default=None, help="port (default 8080 for --web, 5050 for --serve)")
     args = p.parse_args()
 
     if len(sys.argv) == 1:
@@ -175,10 +178,15 @@ def main():
         from shieldedge.dashboard import show_dashboard
         show_dashboard()
         return
+    if args.web:
+        from shieldedge.web_dashboard import run
+        run(host=args.host, port=args.port or 8080, replay=not args.no_replay)
+        return
     if args.serve:
         from shieldedge.api_server import app
-        print(f"[ShieldEdge API] http://{args.host}:{args.port}  (POST /analyze/url|sms|flow, GET /alerts /stats /health)")
-        app.run(host=args.host, port=args.port, debug=False)
+        port = args.port or 5050
+        print(f"[ShieldEdge API] http://{args.host}:{port}  (POST /analyze/url|sms|flow, GET /alerts /stats /health)")
+        app.run(host=args.host, port=port, debug=False)
         return
 
     url_det = URLDetector(URL_MODEL_PATH)

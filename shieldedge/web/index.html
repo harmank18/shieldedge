@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ShieldEdge · On-device threat dashboard</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <div class="logo" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="22" height="22"><path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5l-8-3Z" fill="none" stroke="currentColor" stroke-width="2"/><path d="m8.5 12 2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+    </div>
+    <div>
+      <h1>ShieldEdge</h1>
+      <div class="sub" id="deviceName">On-device threat detection</div>
+    </div>
+  </div>
+  <div class="pills">
+    <span class="pill" id="pillOffline" title="External network connections held by the ShieldEdge process"><i class="dot"></i><span>External connections: –</span></span>
+    <span class="pill" id="pillTemp">CPU –</span>
+    <span class="pill" id="pillRam">RAM –</span>
+    <button class="pill btn" id="replayBtn" title="Replay of real CIC-IDS-2017 flows and held-out test URLs/SMS">Replay: on</button>
+  </div>
+</header>
+
+<div class="banner" id="replayBanner">
+  <b>Dataset replay</b> · real CIC-IDS-2017 Friday flows in a scripted scenario (normal → port scan → DDoS → botnet) and held-out
+  URLs/SMS never used in training, fed through the real detectors on this device. Current phase: <b id="phase">–</b>
+</div>
+
+<main class="grid">
+  <section class="kpis">
+    <div class="kpi" data-kind="URL"><div class="k-label">Links</div><div class="k-val"><span class="k-threat">0</span><span class="k-of">/ <span class="k-total">0</span> flagged</span></div><div class="k-agree"></div></div>
+    <div class="kpi" data-kind="SMS"><div class="k-label">SMS</div><div class="k-val"><span class="k-threat">0</span><span class="k-of">/ <span class="k-total">0</span> flagged</span></div><div class="k-agree"></div></div>
+    <div class="kpi" data-kind="NETWORK"><div class="k-label">Network flows</div><div class="k-val"><span class="k-threat">0</span><span class="k-of">/ <span class="k-total">0</span> flagged</span></div><div class="k-agree"></div></div>
+    <div class="kpi llm"><div class="k-label">Llama 3.2 1B · ExecuTorch</div><div class="k-val small" id="llmState">idle</div><div class="k-agree" id="llmBench"></div></div>
+  </section>
+
+  <section class="card feed">
+    <div class="card-h">
+      <h2>Live feed</h2>
+      <div class="chips" role="tablist">
+        <button class="chip on" data-filter="smart">Threats &amp; messages</button>
+        <button class="chip" data-filter="threats">Threats only</button>
+        <button class="chip" data-filter="all">Everything</button>
+      </div>
+    </div>
+    <div class="feed-list" id="feed" aria-live="polite"></div>
+  </section>
+
+  <section class="card detail" id="detail">
+    <div class="card-h"><h2>Threat detail</h2><span class="muted" id="detailMeta"></span></div>
+    <div class="empty" id="detailEmpty">Select an item in the live feed, or analyse something below.</div>
+    <div id="detailBody" hidden>
+      <div class="verdict-row">
+        <span class="badge" id="dVerdict"></span>
+        <span class="conf" id="dConf"></span>
+        <span class="kind" id="dKind"></span>
+      </div>
+      <div class="d-input" id="dInput"></div>
+      <div class="d-truth" id="dTruth"></div>
+      <h3>Why it was flagged <span class="muted">(detector signals)</span></h3>
+      <ul class="signals" id="dSignals"></ul>
+      <div class="llm-box">
+        <div class="llm-head">
+          <h3>Explanation</h3>
+          <button class="btn primary" id="explainBtn">Explain with Llama</button>
+        </div>
+        <div class="llm-text" id="dLlm"></div>
+        <div class="llm-meta" id="dLlmMeta"></div>
+      </div>
+      <h3>What to do <span class="muted">(vetted playbook)</span></h3>
+      <ol class="steps" id="dSteps"></ol>
+      <div class="caveat" id="dCaveat"></div>
+    </div>
+  </section>
+
+  <section class="card chart">
+    <div class="card-h"><h2>Network traffic</h2><span class="legend"><i class="sw ok"></i>normal <i class="sw bad"></i>flagged · flows per second, last 2 min</span></div>
+    <canvas id="chart" height="150"></canvas>
+  </section>
+
+  <section class="card tryit">
+    <div class="card-h"><h2>Try it</h2><span class="muted">link or SMS · analysed on this device</span></div>
+    <form id="tryForm">
+      <textarea id="tryText" rows="3" maxlength="1600" placeholder="Paste a link or an SMS…"></textarea>
+      <div class="try-row">
+        <div class="examples">
+          <button type="button" class="chip ex" data-ex="http://sbi-net-banking-update.xyz/login">fake SBI link</button>
+          <button type="button" class="chip ex" data-ex="Aapka SBI khata band ho jayega. Turant KYC update karo: http://sbi-kyc-help.xyz">Hinglish KYC scam</button>
+          <button type="button" class="chip ex" data-ex="Rs.2,500.00 debited from A/c XX4521 to VPA zomato@icici. Not you? Call 18002586161 -HDFC Bank">real bank alert</button>
+          <button type="button" class="chip ex" data-ex="https://netbanking.hdfcbank.com/netbanking/">real HDFC site</button>
+        </div>
+        <button class="btn primary" type="submit">Analyse</button>
+      </div>
+      <div class="try-err" id="tryErr"></div>
+    </form>
+  </section>
+
+  <section class="card device">
+    <div class="card-h"><h2>On-device</h2><span class="muted" id="devArch"></span></div>
+    <div class="cores" id="cores"></div>
+    <div class="dev-rows">
+      <div><span>RAM</span><div class="bar"><i id="ramBar"></i></div><b id="ramTxt">–</b></div>
+      <div><span>Llama runner</span><b id="llamaTxt">idle</b></div>
+      <div><span>ShieldEdge process</span><b id="appRss">–</b></div>
+      <div><span>External connections</span><b id="extConn">–</b></div>
+      <div><span>Network interfaces up</span><b id="ifaces">–</b></div>
+      <div><span>Audit log</span><b>SHA-256 hashes only</b></div>
+    </div>
+  </section>
+
+  <section class="card quality">
+    <div class="card-h"><h2>Model quality</h2><span class="muted">held-out test data, positive = any warning</span></div>
+    <div class="table-wrap"><table id="qTable"><thead><tr><th>Detector</th><th>Test set</th><th>n</th><th>Precision</th><th>Recall</th><th>F1</th><th>False alarms</th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section class="card audit">
+    <div class="card-h"><h2>Local audit log</h2><button class="btn ghost" id="clearBtn">Clear all logs</button></div>
+    <div class="audit-list" id="audit"></div>
+    <div class="muted small" id="auditNote">Only items you analyse are stored, as hashes. Replay items are never logged.</div>
+  </section>
+</main>
+<footer>ShieldEdge · Bharat AI-SoC Challenge 2026–27 · PS3 · runs entirely on this device; served on 127.0.0.1 only</footer>
+<script src="/static/app.js"></script>
+</body>
+</html>
