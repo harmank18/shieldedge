@@ -13,6 +13,10 @@ python shieldedge.py --clear-logs          # start with an empty audit log
 sudo ip link set wlan0 down                # Ubuntu Server on the Pi (Pi OS/desktop: nmcli radio wifi off)
 ```
 
+If you drive the Pi over SSH from the laptop, taking wlan0 down also cuts your SSH session and the dashboard
+tunnel. Instead, keep the hotspot up but turn the phone's mobile data off (so the Pi has no internet), or
+skip the ping and rely on `ss -tunap` (only your SSH socket) plus the recorded `results/raspberry-pi-5/offline_proof.txt`.
+
 ---
 
 ## Scene 1 — 0:00–0:30 · The device, offline
@@ -88,7 +92,7 @@ Show `results/benchmarks.md` briefly: the detection table, and the INT4 vs bf16 
 
 Show the GitHub repo (README results table, `scripts/`, `tests/`).
 > "Everything is reproducible: datasets download from public sources, one command evaluates the models, and
-> 36 tests run with pytest. ShieldEdge: private, offline protection against phishing and scams, explained by Llama
+> 45 tests run with pytest. ShieldEdge: private, offline protection against phishing and scams, explained by Llama
 > on an Arm device."
 
 ---
