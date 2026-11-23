@@ -28,6 +28,11 @@ the user what to do, with Indian reporting channels such as 1930, cybercrime.gov
  OUTPUT ─ verdict + explanation + steps;  local SQLite log stores SHA-256 hashes only
 ```
 
+**Hardware:** Raspberry Pi 5 (4× Arm Cortex-A76, 8 GB), CPU only, no GPU/NPU and no internet connection.
+
+**Documents:** [technical report](docs/technical_report.md) · [Raspberry Pi deployment guide](docs/PI_DEPLOYMENT.md) ·
+[all benchmark results](results/benchmarks.md)
+
 **Llama never decides the verdict.** It only explains. If the runner is missing, slow or produces bad
 output, the user still gets the verdict and a template explanation.
 
@@ -111,7 +116,7 @@ threads. Two threads give the shortest full explanation, so ShieldEdge uses 2 th
 
 **Other Pi measurements**
 - **Detection latency per input:** URL 8.4 ms, SMS 5.6 ms, one network flow 10.9 ms. The Python process with all
-  three detectors loaded uses 325 MB.
+  three detectors loaded uses 325 MB. The trained detector model files total about 13 MB.
 - **Thermals:** 49.6 °C after the full benchmark, and the throttle flags stayed at 0x0 (never throttled), without
   a fan.
 - **Offline proof** ([`offline_proof.txt`](results/raspberry-pi-5/offline_proof.txt)): Wi-Fi and Ethernet were down
@@ -121,17 +126,14 @@ threads. Two threads give the shortest full explanation, so ShieldEdge uses 2 th
 Explanation quality on 19 flagged real detector outputs, including 3 prompt-injection attempts: **18/19 (95%) passed
 validation** on the laptop and **17/19 (89%)** on the Pi, where outputs differ slightly. On both devices, 0 raw
 inputs leaked into the prompt and every injection attempt kept its SCAM/PHISHING verdict. Rejected outputs (naming "Amazon" for `amaz0n-offers.shop`, plus one empty list-style answer on the Pi) were
-replaced by the template explanation.
-There were **0 raw-input leaks**, and every injection kept its threat verdict (`results/prompt_eval_*.json`).
-
-Detection latency per input: a few milliseconds for URLs and SMS, and about 10–12 ms for one network flow (see `results/benchmarks.md`). Model files total about 13 MB.
+replaced by the template explanation (`results/prompt_eval_*.json`).
 
 ---
 
 ## Quick start
 
 ```bash
-git clone -b harman-devs https://github.com/harmank18/shieldedge.git && cd shieldedge
+git clone https://github.com/harmank18/shieldedge.git && cd shieldedge
 ./setup.sh                      # venv + requirements (QR scanning also needs: sudo apt install libzbar0)
 source venv/bin/activate
 ```
@@ -228,8 +230,8 @@ executorch/                   export_llama.sh (+ llama_main, .pte - not in git)
 scripts/                      benchmark_llm.py, prompt_eval.py, setup_pi.sh, copy_to_pi.sh,
                               benchmark_device.sh, offline_proof.sh
 results/                      generated metrics and benchmarks (labelled by device)
-docs/                         technical_report.md, PI_DEPLOYMENT.md, PROJECT_BRIEF.md
-demo/demo_script.md           5-minute demo storyboard
+docs/                         technical_report.md, PI_DEPLOYMENT.md, dashboard screenshot
+demo/demo_script.md           demo commands and storyboard
 tests/                        pytest suite
 ```
 

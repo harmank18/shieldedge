@@ -13,7 +13,7 @@ cooler or a heatsink, because the build and the benchmarks load all 4 cores.
 ## 1. Clone the repo on the Pi
 
 ```bash
-git clone -b harman-devs https://github.com/harmank18/shieldedge.git ~/shieldedge
+git clone https://github.com/harmank18/shieldedge.git ~/shieldedge
 cd ~/shieldedge
 ```
 

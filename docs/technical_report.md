@@ -3,7 +3,7 @@
 **Bharat AI-SoC Student Challenge 2026–27 · Problem Statement 3 (Cybersecurity & Digital Safety) · Phase 1 report**
 
 Team: Harman Kishnadwala, Arnav Mohan Jabade, Aishan Prabahakar Nikam · Faculty mentor: Prof. Akshay Madan
-Code: https://github.com/harmank18/shieldedge (branch `harman-devs`) · November 2026
+Code: https://github.com/harmank18/shieldedge · November 2026
 
 ---
 
