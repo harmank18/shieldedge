@@ -30,8 +30,11 @@ the user what to do, with Indian reporting channels such as 1930, cybercrime.gov
 
 **Hardware:** Raspberry Pi 5 (4× Arm Cortex-A76, 8 GB), CPU only, no GPU/NPU and no internet connection.
 
-**Documents:** [technical report](docs/technical_report.md) · [Raspberry Pi deployment guide](docs/PI_DEPLOYMENT.md) ·
-[all benchmark results](results/benchmarks.md)
+**Final report (PDF):** [docs/ShieldEdge_Final_Report.pdf](docs/ShieldEdge_Final_Report.pdf): methodology, results, hardware
+utilisation and optimisation techniques.
+
+**Other documents:** [detailed technical notes](docs/technical_report.md) · [Raspberry Pi deployment guide](docs/PI_DEPLOYMENT.md) ·
+[all benchmark results](results/benchmarks.md) · [demo video storyboard](demo/demo_script.md)
 
 **Llama never decides the verdict.** It only explains. If the runner is missing, slow or produces bad
 output, the user still gets the verdict and a template explanation.
@@ -230,8 +233,9 @@ executorch/                   export_llama.sh (+ llama_main, .pte - not in git)
 scripts/                      benchmark_llm.py, prompt_eval.py, setup_pi.sh, copy_to_pi.sh,
                               benchmark_device.sh, offline_proof.sh
 results/                      generated metrics and benchmarks (labelled by device)
-docs/                         technical_report.md, PI_DEPLOYMENT.md, dashboard screenshot
-demo/demo_script.md           demo commands and storyboard
+docs/                         ShieldEdge_Final_Report.pdf (final report), technical_report.md (detailed notes),
+                              PI_DEPLOYMENT.md, dashboard screenshot
+demo/demo_script.md           2-minute demo video storyboard and commands
 tests/                        pytest suite
 ```
 

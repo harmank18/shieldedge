@@ -1,6 +1,9 @@
 # ShieldEdge: On-Device Threat, Phishing and Scam Detection with an ExecuTorch Llama Explainer
 
-**Bharat AI-SoC Student Challenge 2026–27 · Problem Statement 3 (Cybersecurity & Digital Safety) · Phase 1 report**
+**Bharat AI-SoC Student Challenge 2026–27 · Problem Statement 3 (Cybersecurity & Digital Safety) · Detailed technical notes**
+
+> The submitted Phase 1 final report is [ShieldEdge_Final_Report.pdf](ShieldEdge_Final_Report.pdf). This Markdown
+> version holds the same results with more implementation detail.
 
 Team: Harman Kishnadwala, Arnav Mohan Jabade, Aishan Prabahakar Nikam · Faculty mentor: Prof. Akshay Madan
 Code: https://github.com/harmank18/shieldedge · November 2026
