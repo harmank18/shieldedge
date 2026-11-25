@@ -30,6 +30,8 @@ the user what to do, with Indian reporting channels such as 1930, cybercrime.gov
 
 **Hardware:** Raspberry Pi 5 (4× Arm Cortex-A76, 8 GB), CPU only, no GPU/NPU and no internet connection.
 
+**Demo video (2 minutes):** [watch on Google Drive](https://drive.google.com/file/d/12OS9qSvhOAMMcCyYEgRWhlCSWI0gbG1m/view?usp=drive_link)
+
 **Final report (PDF):** [docs/shieldedge_report.pdf](docs/shieldedge_report.pdf): methodology, results, hardware
 utilisation and optimisation techniques.
 
